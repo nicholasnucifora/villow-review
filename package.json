@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "wrangler dev --config wrangler.dev.jsonc",
     "build:staging": "wrangler deploy --dry-run --config wrangler.staging.jsonc --outdir dist-staging",
-    "build": "wrangler deploy --dry-run --config wrangler.review.jsonc --outdir dist",
+    "deploy:staging": "node scripts/deploy.mjs staging",
+    "build": "wrangler deploy --dry-run --config wrangler.jsonc --outdir dist",
+    "deploy": "node scripts/deploy.mjs production",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

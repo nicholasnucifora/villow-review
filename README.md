@@ -30,6 +30,7 @@ npm run build
 ```
 
 Do not use real production or personal credentials in `.dev.vars`. Use a separate local/staging review project.
+The default `wrangler.jsonc` is production-only and targets the isolated `villow-review` Worker. Deploy production with `npm run deploy`; the command refuses any Cloudflare CI target-name override other than `villow-review`. Local development and staging always use their explicitly named configuration files.
 
 ## Documentation
 

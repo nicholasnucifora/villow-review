@@ -67,21 +67,25 @@ Generate encryption/signing material locally:
 npm run admin -- keys:generate
 ```
 
-Set every required secret declared in `wrangler.review.jsonc`. When Wrangler prompts for a value, paste the value privately and press Enter; do not put it on the command line:
+Set every required secret declared in the production `wrangler.jsonc`. When Wrangler prompts for a value, paste the value privately and press Enter; do not put it on the command line:
 
 ```sh
-npx wrangler secret put REVIEW_SUPABASE_URL --config wrangler.review.jsonc
-npx wrangler secret put REVIEW_SUPABASE_SERVICE_ROLE_KEY --config wrangler.review.jsonc
-npx wrangler secret put REVIEW_GOOGLE_CLIENT_ID --config wrangler.review.jsonc
-npx wrangler secret put REVIEW_GOOGLE_CLIENT_SECRET --config wrangler.review.jsonc
-npx wrangler secret put REVIEW_TOKEN_ENCRYPTION_KEY --config wrangler.review.jsonc
-npx wrangler secret put REVIEW_SESSION_SIGNING_KEY --config wrangler.review.jsonc
-npx wrangler secret put ALLOWED_EXTENSION_ORIGINS --config wrangler.review.jsonc
+npx wrangler secret put REVIEW_SUPABASE_URL --config wrangler.jsonc
+npx wrangler secret put REVIEW_SUPABASE_SERVICE_ROLE_KEY --config wrangler.jsonc
+npx wrangler secret put REVIEW_GOOGLE_CLIENT_ID --config wrangler.jsonc
+npx wrangler secret put REVIEW_GOOGLE_CLIENT_SECRET --config wrangler.jsonc
+npx wrangler secret put REVIEW_TOKEN_ENCRYPTION_KEY --config wrangler.jsonc
+npx wrangler secret put REVIEW_SESSION_SIGNING_KEY --config wrangler.jsonc
+npx wrangler secret put ALLOWED_EXTENSION_ORIGINS --config wrangler.jsonc
 ```
 
 For `REVIEW_SUPABASE_SERVICE_ROLE_KEY`, paste the dedicated `sb_secret_…` value. For `REVIEW_SUPABASE_URL`, paste the `https://<project-ref>.supabase.co` project URL. The final value of `ALLOWED_EXTENSION_ORIGINS` is not available until the first Chrome Web Store draft upload assigns the stable extension ID.
 
-`workers_dev` and preview URLs are disabled in `wrangler.review.jsonc`, and the Worker additionally rejects hosts other than `REVIEW_ORIGIN` in production. The Custom Domain is exact; API requests are never redirected to another host.
+Cloudflare Worker secrets are scoped to a Worker (and, when used, its Wrangler environment). Secrets attached to the `villow-site` Worker are not shared with `villow-review`: they do not satisfy `villow-review` bindings, and duplicate names on `villow-site` do not conflict with this Worker. Add all seven required secrets to `villow-review`; remove copies from `villow-site` only if that site's own code does not use them.
+
+In the dashboard, add them under **Workers & Pages → villow-review → Settings → Variables and Secrets**, choose type **Secret** for every name, and select **Deploy** to apply the changes. Do not put them under **Settings → Build → Build Variables and Secrets** as a substitute: build secrets exist only while the Git build is running and are not runtime bindings for the deployed Worker.
+
+`workers_dev` and preview URLs are disabled in `wrangler.jsonc`, and the Worker additionally rejects hosts other than `REVIEW_ORIGIN` in production. The Custom Domain is exact; API requests are never redirected to another host.
 
 ## Where to enter the final published extension ID
 
@@ -93,7 +97,7 @@ chrome-extension://<published-extension-id>
 
 If more than one packaged production extension must be accepted, use a comma-separated list of exact origins. Do not include spaces inside an origin and do not use `*`.
 
-Development extension IDs belong only in the uncommitted `review/.dev.vars` file (copied from `.dev.vars.example`) or a separate staging Worker's secret. Never add a development ID to the production secret or to `wrangler.review.jsonc`.
+Development extension IDs belong only in the uncommitted `.dev.vars` file (copied from `.dev.vars.example`) or a separate staging Worker's secret. Never add a development ID to the production secret or to `wrangler.jsonc`.
 
 The Worker returns the requesting exact allowed origin, never `Access-Control-Allow-Origin: *`, and returns `Vary: Origin`. Bearer authentication remains mandatory after CORS succeeds.
 
@@ -105,9 +109,11 @@ From this directory:
 npm run typecheck
 npm test
 npm run build
-npx wrangler deploy --config wrangler.review.jsonc
+npm run deploy
 ```
 
-Local development uses `wrangler.dev.jsonc`; staging uses `wrangler.staging.jsonc`; production uses `wrangler.review.jsonc`. Each has its own origin and Worker identity. Change the staging hostname before first staging deployment if `review-staging.villow.app` is not the chosen private staging domain, and register a matching staging Google OAuth redirect URI. Never point development or staging at the production Supabase or Google project.
+For a Cloudflare Git deployment, open the **villow-review** Worker (not `villow-site`) and configure the exact commands **Build command** `npm run build` and **Deploy command** `npm run deploy`. The production file is the default `wrangler.jsonc`, so even Cloudflare's generic `npx wrangler deploy` command resolves to the same isolated production Worker. The deploy script also fails closed if Workers Builds supplies a `WRANGLER_CI_OVERRIDE_NAME` other than `villow-review`.
+
+Local development uses `wrangler.dev.jsonc`; staging uses `wrangler.staging.jsonc`; production uses the default `wrangler.jsonc`. Each has its own origin and Worker identity. Use `npm run deploy:staging` only for staging. Change the staging hostname before first staging deployment if `review-staging.villow.app` is not the chosen private staging domain, and register a matching staging Google OAuth redirect URI. Never point development or staging at the production Supabase or Google project.
 
 Confirm the deployed Worker is attached directly to `review.villow.app`, its `workers.dev` route and preview URLs are disabled, all required secrets resolve, and no binding from the main Villow site or application is present.
