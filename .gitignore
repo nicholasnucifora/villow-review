@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-staging/
+.wrangler/
+.dev.vars
+.env
+coverage/
+*.log

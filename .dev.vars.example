@@ -1,0 +1,10 @@
+# Copy to .dev.vars. Never commit .dev.vars.
+REVIEW_SUPABASE_URL=https://YOUR_REVIEW_PROJECT.supabase.co
+# The variable name is kept for compatibility; use the dedicated sb_secret_ key.
+REVIEW_SUPABASE_SERVICE_ROLE_KEY=sb_secret_replace-with-review-project-secret-key
+REVIEW_GOOGLE_CLIENT_ID=replace-with-review-oauth-client-id
+REVIEW_GOOGLE_CLIENT_SECRET=replace-with-review-oauth-client-secret
+REVIEW_TOKEN_ENCRYPTION_KEY=replace-with-32-random-bytes-as-base64url
+REVIEW_SESSION_SIGNING_KEY=replace-with-at-least-32-random-bytes-as-base64url
+# Development extension IDs belong here only. Production uses a Worker secret.
+ALLOWED_EXTENSION_ORIGINS=chrome-extension://DEVELOPMENT_EXTENSION_ID

@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "villow-review-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "ENVIRONMENT": "development",
+    "REVIEW_ORIGIN": "http://127.0.0.1:8787"
+  },
+  "secrets": {
+    "required": [
+      "REVIEW_SUPABASE_URL",
+      "REVIEW_SUPABASE_SERVICE_ROLE_KEY",
+      "REVIEW_GOOGLE_CLIENT_ID",
+      "REVIEW_GOOGLE_CLIENT_SECRET",
+      "REVIEW_TOKEN_ENCRYPTION_KEY",
+      "REVIEW_SESSION_SIGNING_KEY",
+      "ALLOWED_EXTENSION_ORIGINS"
+    ]
+  }
+}
