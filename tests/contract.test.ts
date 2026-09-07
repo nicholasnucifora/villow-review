@@ -160,11 +160,31 @@ describe("CORS and bearer authentication", () => {
     expect(result.headers.get("Access-Control-Expose-Headers")).toContain("Retry-After");
   });
 
+  it("rejects a preflight that omits Origin", async () => {
+    const result = await workerFetch(new Request("https://review.villow.app/api/ping", {
+      method: "OPTIONS",
+      headers: { "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization" },
+    }), env);
+    expect(result.status).toBe(403);
+    expect(result.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
   it("rejects an unconfigured development extension origin", async () => {
     const result = await workerFetch(new Request("https://review.villow.app/api/ping", {
       headers: { Origin: `chrome-extension://${"b".repeat(32)}`, Authorization: `Bearer ${token}` },
     }), env);
     expect(result.status).toBe(403);
+    expect(result.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(result.headers.get("Vary")).toContain("Origin");
+  });
+
+  it("authenticates an originless privileged extension request by bearer token", async () => {
+    vi.stubGlobal("fetch", supabaseExtensionAuthMock());
+    const result = await workerFetch(new Request("https://review.villow.app/api/ping", {
+      headers: { Authorization: `Bearer ${token}` },
+    }), env);
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({});
     expect(result.headers.get("Access-Control-Allow-Origin")).toBeNull();
     expect(result.headers.get("Vary")).toContain("Origin");
   });

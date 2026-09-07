@@ -24,7 +24,7 @@ OAuth uses an exact same-origin callback, one-time hashed state, PKCE S256, a te
 
 ### Extension to review Worker
 
-CORS compares exact packaged-extension origins from configuration and echoes only a matching origin with `Vary: Origin`. Wildcards are not supported. CORS is not authentication: every extension route independently requires an active hashed bearer token owned by one reviewer. Production rejects unknown hosts and does not expose a `workers.dev` or preview URL.
+CORS preflights require an exact packaged-extension origin from configuration, and responses echo only a matching supplied origin with `Vary: Origin`. Wildcards are not supported. Chrome may omit `Origin` from privileged extension service-worker requests after host permission is granted; those requests proceed directly to bearer authentication. A supplied but unlisted origin is always rejected. CORS and the forgeable or absent `Origin` header are not authentication: every extension route independently requires an active hashed bearer token owned by one reviewer. Production rejects unknown hosts and does not expose a `workers.dev` or preview URL.
 
 ### Worker to storage and external services
 

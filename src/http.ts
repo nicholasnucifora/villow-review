@@ -32,6 +32,13 @@ export function extensionOrigins(env: Env): Set<string> {
 
 export function isAllowedExtensionOrigin(request: Request, env: Env): boolean {
   const origin = request.headers.get("Origin");
+  // Chrome may omit Origin for privileged extension fetches once the extension
+  // has host permission. Those requests still pass through bearer authentication.
+  return !origin || extensionOrigins(env).has(origin);
+}
+
+export function isAllowedPreflightOrigin(request: Request, env: Env): boolean {
+  const origin = request.headers.get("Origin");
   return Boolean(origin && extensionOrigins(env).has(origin));
 }
 
@@ -71,7 +78,7 @@ export function finalize(request: Request, response: Response, env: Env): Respon
 }
 
 export function preflight(request: Request, env: Env): Response {
-  if (!isAllowedExtensionOrigin(request, env)) return json({ message: "Origin not allowed." }, 403);
+  if (!isAllowedPreflightOrigin(request, env)) return json({ message: "Origin not allowed." }, 403);
   return new Response(null, {
     status: 204,
     headers: {

@@ -22,6 +22,6 @@ Use two isolated browser profiles and two dedicated test Google accounts for cro
 18. Check `GET /api/queue/status` and confirm every returned entry contains boolean `played` and `present`.
 19. Remove an unplayed video and confirm it disappears. A repeated delete may return `404`, which the extension treats as success.
 20. Revoke the extension token and confirm `GET /api/ping` and queue save return `401`; confirm a Google failure never returns `401`.
-21. Test an unlisted extension origin and confirm preflight/requests are rejected without a wildcard CORS header and all responses contain `Vary: Origin`.
+21. Confirm an originless service-worker request with a valid bearer token succeeds, an originless preflight is rejected, and a request carrying an unlisted origin is rejected without a wildcard CORS header. Confirm all responses contain `Vary: Origin`.
 22. Confirm `https://villow.app`, its index, and its policy files are unchanged and no review credentials/bindings exist in that deployment.
 23. Revoke the connect link and delete review data after the test. Rotate the shared invitation only when it must be revoked, not after each use.

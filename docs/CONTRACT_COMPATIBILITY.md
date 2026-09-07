@@ -4,7 +4,7 @@ Target client: Villow browser extension v0.8.2, using the authoritative `REVIEW_
 
 | Route | Status | Behavior |
 |---|---|---|
-| `OPTIONS *` | Implemented | Exact configurable extension origin; authorization/content-type headers; GET/POST/DELETE/OPTIONS; `Retry-After` exposed |
+| `OPTIONS *` | Implemented | Exact configurable extension origin; missing and unlisted origins rejected; authorization/content-type headers; GET/POST/DELETE/OPTIONS; `Retry-After` exposed |
 | `GET /api/ping` | Implemented | Bearer required; `200 {}` |
 | `POST /api/queue` | Implemented | Validated extension metadata only; synchronous Supabase write; `201` or duplicate `409`; never calls Google |
 | `GET /api/subscriptions` | Implemented | Complete live/cached list with stable `channelId`, `handle` when available, and `title` |
@@ -16,6 +16,12 @@ Target client: Villow browser extension v0.8.2, using the authoritative `REVIEW_
 | `POST /api/screen-time` | Intentionally `404` | Obsolete optional route |
 
 Unsupported routes never return a misleading `200 {}`.
+
+Chrome may omit the `Origin` header from a privileged service-worker request
+after the reviewer grants host permission. Originless extension API requests
+therefore proceed to bearer authentication. Requests that do carry an
+`Origin` must match `ALLOWED_EXTENSION_ORIGINS` exactly, and preflights always
+require an allowlisted origin.
 
 ## Addendum precedence
 
