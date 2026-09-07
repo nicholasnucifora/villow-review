@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { constantTimeEqual, decryptSecret, encryptSecret, sha256, signValue, verifySignedValue } from "../src/crypto";
-import { ReviewDatabase, supabaseRequestHeaders } from "../src/db";
+import { ReviewDatabase, supabaseRequestHeaders, supabaseRestUrl } from "../src/db";
 import { createOAuthTransaction, GOOGLE_SCOPES, GoogleReauthRequired, hasRequiredScopes, synchronizeSubscriptions } from "../src/google";
 import { workerFetch } from "../src/index";
 import { reviewHtml, reviewJs } from "../src/ui";
@@ -81,6 +81,27 @@ describe("Supabase server credentials", () => {
   it("keeps legacy service-role JWT compatibility", () => {
     const headers = supabaseRequestHeaders("legacy-service-role-jwt");
     expect(headers.get("Authorization")).toBe("Bearer legacy-service-role-jwt");
+  });
+
+  it("normalizes either Supabase project or REST API URLs", () => {
+    expect(supabaseRestUrl("https://project.supabase.co", "example")).toBe("https://project.supabase.co/rest/v1/example");
+    expect(supabaseRestUrl(" https://project.supabase.co/rest/v1/ ", "example")).toBe("https://project.supabase.co/rest/v1/example");
+  });
+
+  it("invokes an injected fetcher without rebinding its this value", async () => {
+    let receiver: unknown = "not-called";
+    const fetcher = function (this: unknown) {
+      receiver = this;
+      return Promise.resolve(response(null, 201));
+    } as typeof fetch;
+    const db = new ReviewDatabase(env, { fetch: fetcher });
+    await db.createOAuthTransaction({
+      stateHash: "s".repeat(43),
+      sharedInvite: true,
+      encryptedVerifier: "encrypted",
+      expiresAt: new Date().toISOString(),
+    });
+    expect(receiver).toBeUndefined();
   });
 });
 

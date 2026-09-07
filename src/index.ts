@@ -1,5 +1,5 @@
 import { constantTimeEqual, decryptSecret, encryptSecret, randomToken, sha256, signValue, verifySignedValue } from "./crypto";
-import { DatabaseError, ReviewDatabase, supabaseRequestHeaders } from "./db";
+import { DatabaseError, ReviewDatabase, supabaseRequestHeaders, supabaseRestUrl } from "./db";
 import {
   createOAuthTransaction, exchangeAuthorizationCode, fetchGoogleIdentity, GoogleReauthRequired,
   GoogleUnavailable, grantedScopes, hasRequiredScopes, OAuthTransactionSetupError, synchronizeSubscriptions,
@@ -95,7 +95,7 @@ async function requireExtension(request: Request, env: Env, db: ReviewDatabase):
 }
 
 async function rateLimit(env: Env, scope: string, keyHash: string, maximum: number, windowSeconds: number): Promise<boolean> {
-  const response = await fetch(`${env.REVIEW_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/rpc/check_review_rate_limit`, {
+  const response = await fetch(supabaseRestUrl(env.REVIEW_SUPABASE_URL, "rpc/check_review_rate_limit"), {
     method: "POST",
     headers: supabaseRequestHeaders(env.REVIEW_SUPABASE_SERVICE_ROLE_KEY),
     body: JSON.stringify({ p_scope: scope, p_key_hash: keyHash, p_maximum: maximum, p_window_seconds: windowSeconds }),

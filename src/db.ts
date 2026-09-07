@@ -27,6 +27,11 @@ export function supabaseRequestHeaders(key: string, extra?: HeadersInit): Header
   return headers;
 }
 
+export function supabaseRestUrl(baseUrl: string, path: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
+  return `${base}/rest/v1/${path}`;
+}
+
 export class ReviewDatabase {
   private readonly fetcher: typeof fetch;
 
@@ -35,7 +40,8 @@ export class ReviewDatabase {
   }
 
   private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await this.fetcher(`${this.env.REVIEW_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${path}`, {
+    const fetcher = this.fetcher;
+    const response = await fetcher(supabaseRestUrl(this.env.REVIEW_SUPABASE_URL, path), {
       ...init,
       headers: supabaseRequestHeaders(this.env.REVIEW_SUPABASE_SERVICE_ROLE_KEY, init.headers),
     });
