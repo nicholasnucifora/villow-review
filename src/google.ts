@@ -42,7 +42,10 @@ async function googleJson<T>(url: string, init: RequestInit, fetcher: typeof fet
 export async function createOAuthTransaction(
   db: ReviewDatabase,
   env: Env,
-  binding: { inviteId?: string; expectedUserId?: string },
+  binding:
+    | { inviteId: string; expectedUserId?: never; sharedInvite?: never }
+    | { expectedUserId: string; inviteId?: never; sharedInvite?: never }
+    | { sharedInvite: true; inviteId?: never; expectedUserId?: never },
 ): Promise<string> {
   const state = randomToken(32);
   const verifier = randomToken(64);
@@ -51,6 +54,7 @@ export async function createOAuthTransaction(
     stateHash: await sha256(state),
     inviteId: binding.inviteId,
     expectedUserId: binding.expectedUserId,
+    sharedInvite: binding.sharedInvite,
     encryptedVerifier: await encryptSecret(verifier, env.REVIEW_TOKEN_ENCRYPTION_KEY),
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
   });

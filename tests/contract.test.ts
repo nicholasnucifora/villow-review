@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decryptSecret, encryptSecret, sha256, signValue, verifySignedValue } from "../src/crypto";
+import { constantTimeEqual, decryptSecret, encryptSecret, sha256, signValue, verifySignedValue } from "../src/crypto";
 import { ReviewDatabase, supabaseRequestHeaders } from "../src/db";
 import { createOAuthTransaction, GOOGLE_SCOPES, GoogleReauthRequired, hasRequiredScopes, synchronizeSubscriptions } from "../src/google";
 import { workerFetch } from "../src/index";
-import { reviewJs } from "../src/ui";
+import { reviewHtml, reviewJs } from "../src/ui";
 import type { Env, GoogleChannel, QueuePayload } from "../src/types";
 import { validateExtensionDay, validateQueuePayload } from "../src/validation";
 
@@ -23,6 +23,7 @@ const env: Env = {
   REVIEW_GOOGLE_CLIENT_SECRET: "review-client-secret",
   REVIEW_TOKEN_ENCRYPTION_KEY: zeroKey,
   REVIEW_SESSION_SIGNING_KEY: zeroKey,
+  REVIEW_INVITE_TOKEN: "shared-review-invitation-secret",
   ALLOWED_EXTENSION_ORIGINS: extensionOrigin,
 };
 
@@ -94,6 +95,11 @@ describe("credential cryptography", () => {
     const signed = await signValue("session-token", zeroKey);
     expect(await verifySignedValue(signed, zeroKey)).toBe("session-token");
     expect(await verifySignedValue(`${signed}x`, zeroKey)).toBeNull();
+  });
+
+  it("compares invitation secrets without an early-return string comparison", async () => {
+    expect(await constantTimeEqual("shared-secret", "shared-secret")).toBe(true);
+    expect(await constantTimeEqual("shared-secret", "different")).toBe(false);
   });
 });
 
@@ -192,6 +198,15 @@ describe("queue delivery", () => {
   it("renders submitted strings as text instead of HTML", () => {
     expect(reviewJs).toContain("link.textContent = cleanText(video.title)");
     expect(reviewJs).not.toContain("innerHTML");
+  });
+
+  it("ships a valid fragment-gate script and the required Connect Extension label", () => {
+    expect(() => new Function(reviewJs)).not.toThrow();
+    expect(reviewJs).toContain('fragment.get("villow_invite")');
+    expect(reviewJs).toContain('api("/api/invitations/validate"');
+    expect(reviewJs).toContain("history.replaceState");
+    expect(reviewJs).not.toContain("REVIEW_INVITE_TOKEN");
+    expect(reviewHtml).toContain('<h2 id="connect-title">Connect Extension</h2>');
   });
 });
 

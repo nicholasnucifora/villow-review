@@ -2,15 +2,17 @@
 
 Run every command from `review/` in a trusted local shell. Set `REVIEW_SUPABASE_URL` to the dedicated project URL and `REVIEW_SUPABASE_SERVICE_ROLE_KEY` to its dedicated `sb_secret_…` key; optionally set `REVIEW_ORIGIN` (it defaults to `https://review.villow.app`). The variable keeps its legacy name for compatibility. Never paste this credential into a browser or commit it.
 
-## Create a private invitation
+## Shared private invitation
+
+`REVIEW_INVITE_TOKEN` is the single shared invitation secret. Keep the same high-entropy value for at least six months so Chrome reviewers can retest and resume a submission. Store it only as a Cloudflare Worker secret and in an approved secret store; never commit or log it.
+
+Set or rotate it through Wrangler's private prompt:
 
 ```sh
-npm run admin -- invite:create --label "Chrome Web Store reviewer" --expires-days 14
+npx wrangler secret put REVIEW_INVITE_TOKEN --config wrangler.jsonc
 ```
 
-The command stores only a SHA-256 hash and prints the raw fragment invitation once. Copy the printed URL into the private Chrome Web Store test instructions. The invitation binds to the first Google account that completes OAuth and can later be resumed only by that account.
-
-Create one invitation per human tester. Do not share one invitation among testers.
+Construct the private review URL as `https://review.villow.app/#villow_invite=<REVIEW_INVITE_TOKEN>` inside the approved secret store, then place the completed URL in the Chrome Web Store's private test instructions. The URL is reusable and is not bound or burned when a reviewer signs in. Opening it validates the fragment server-side, clears it from the address bar, and presents **Continue with Google**.
 
 ## Prepare the dedicated Google review account
 
@@ -36,7 +38,7 @@ Put only the harmless channel title/handle list into `{{KNOWN_SUBSCRIBED_CHANNEL
 
 ## Generate the extension connect link
 
-Preferred reviewer flow: while signed in to `review.villow.app`, select **Generate connect link**, then **Copy**. The raw bearer token appears only once.
+Preferred reviewer flow: while signed in to `review.villow.app`, find **Connect Extension**, select **Generate connect link**, then **Copy**. The raw bearer token appears only once.
 
 Operator recovery flow:
 
@@ -50,7 +52,7 @@ Place the result into `{{CONNECT_LINK}}` if the private reviewer instructions in
 
 If the extension shows “Reconnect Google in Villow to refresh your subscriptions.”:
 
-1. Sign in to `review.villow.app` using the existing invitation/session and the same dedicated Google account.
+1. Sign in to `review.villow.app` using the shared invitation/session and the same dedicated Google account.
 2. Select **Reconnect Google**.
 3. Complete consent with the same account.
 4. Return to the extension and press **Refresh subscriptions**.
@@ -69,11 +71,13 @@ The status output contains identifiers, safe timestamps, counts, and safe subscr
 
 ## Revoke access
 
-Revoke an invitation:
+Revoke the shared invitation by rotating `REVIEW_INVITE_TOKEN`:
 
 ```sh
-npm run admin -- invite:revoke --id <invitation-uuid>
+npx wrangler secret put REVIEW_INVITE_TOKEN --config wrangler.jsonc
 ```
+
+Rotation invalidates the old URL and open invitation-gate cookies. Website sessions and extension connect links have separate lifecycles and must be revoked separately when required.
 
 Revoke an extension connect link:
 
@@ -87,19 +91,13 @@ Revoke all website sessions for a reviewer:
 npm run admin -- session:revoke --user-id <review-user-uuid>
 ```
 
-Safely unbind an invitation only when account binding was incorrect. This also revokes that user's sessions and extension links:
-
-```sh
-npm run admin -- invite:unbind --id <invitation-uuid> --confirm-user-id <review-user-uuid>
-```
-
 Clear only the queue:
 
 ```sh
 npm run admin -- queue:clear --user-id <review-user-uuid>
 ```
 
-Delete all reviewer data and revoke the claimed invitation:
+Delete all reviewer data:
 
 ```sh
 npm run admin -- user:delete --user-id <review-user-uuid> --confirm-user-id <review-user-uuid>

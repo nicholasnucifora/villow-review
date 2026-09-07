@@ -1,4 +1,4 @@
-import { decryptSecret, encryptSecret, randomToken, sha256, signValue, verifySignedValue } from "./crypto";
+import { constantTimeEqual, decryptSecret, encryptSecret, randomToken, sha256, signValue, verifySignedValue } from "./crypto";
 import { DatabaseError, ReviewDatabase, supabaseRequestHeaders } from "./db";
 import {
   createOAuthTransaction, exchangeAuthorizationCode, fetchGoogleIdentity, GoogleReauthRequired,
@@ -14,6 +14,8 @@ import { validateExtensionDay, validateQueuePayload, validateVideoId } from "./v
 
 const SESSION_COOKIE = "villow_review_session";
 const CSRF_COOKIE = "villow_review_csrf";
+const INVITE_COOKIE = "villow_review_invited";
+const INVITE_COOKIE_VALUE = "shared-invite-v1";
 const GOOGLE_REAUTH_MESSAGE = "Reconnect Google in Villow to refresh your subscriptions.";
 
 function cookieValue(request: Request, name: string): string | null {
@@ -41,6 +43,23 @@ function withCookies(response: Response, values: string[]): Response {
 
 function clearCookies(env: Env): string[] {
   return [cookie(SESSION_COOKIE, "", env, { httpOnly: true, maxAge: 0 }), cookie(CSRF_COOKIE, "", env, { maxAge: 0 })];
+}
+
+function reviewInviteToken(env: Env): string {
+  if (typeof env.REVIEW_INVITE_TOKEN !== "string" || env.REVIEW_INVITE_TOKEN.length === 0) {
+    throw new Error("Review invitation secret is not configured");
+  }
+  return env.REVIEW_INVITE_TOKEN;
+}
+
+async function invitationCookieValue(env: Env): Promise<string> {
+  return signValue(INVITE_COOKIE_VALUE, await sha256(reviewInviteToken(env)));
+}
+
+async function hasInvitationAccess(request: Request, env: Env): Promise<boolean> {
+  const signed = cookieValue(request, INVITE_COOKIE);
+  if (!signed) return false;
+  return await verifySignedValue(signed, await sha256(reviewInviteToken(env))) === INVITE_COOKIE_VALUE;
 }
 
 async function sessionAuth(request: Request, env: Env, db: ReviewDatabase): Promise<SessionAuth | null> {
@@ -93,19 +112,30 @@ async function requireRateLimit(env: Env, scope: string, key: string, maximum: n
   }
 }
 
-async function handleInvitation(request: Request, env: Env, db: ReviewDatabase): Promise<Response> {
+async function handleInvitation(request: Request, env: Env): Promise<Response> {
   if (!requireSameOrigin(request, env)) throw new HttpError(403, "Request origin was rejected.");
   const body = await readJson(request);
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "Invitation is invalid.");
   const input = body as Record<string, unknown>;
-  if (Object.keys(input).length !== 2 || input.invitationOrigin !== new URL(env.REVIEW_ORIGIN).origin || typeof input.token !== "string" || !/^[A-Za-z0-9_-]{40,200}$/.test(input.token)) {
+  if (Object.keys(input).length !== 1 || typeof input.token !== "string" || input.token.length === 0 || input.token.length > 2_048) {
     throw new HttpError(400, "This invitation could not be used.");
   }
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   await requireRateLimit(env, "invitation", ip, 12, 600);
-  const invite = await db.findValidInvite(await sha256(input.token));
-  if (!invite) throw new HttpError(403, "This invitation could not be used.");
-  const authorizeUrl = await createOAuthTransaction(db, env, { inviteId: invite.id });
+  if (!await constantTimeEqual(input.token, reviewInviteToken(env))) throw new HttpError(403, "This invitation could not be used.");
+  return withCookies(json({ invited: true }), [
+    cookie(INVITE_COOKIE, await invitationCookieValue(env), env, { httpOnly: true }),
+  ]);
+}
+
+async function handleOAuthStart(request: Request, env: Env, db: ReviewDatabase): Promise<Response> {
+  if (!requireSameOrigin(request, env)) throw new HttpError(403, "Request origin was rejected.");
+  const body = await readJson(request);
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body as Record<string, unknown>).length !== 0) {
+    throw new HttpError(400, "Request is invalid.");
+  }
+  if (!await hasInvitationAccess(request, env)) throw new HttpError(403, "A valid review invitation is required.");
+  const authorizeUrl = await createOAuthTransaction(db, env, { sharedInvite: true });
   return json({ authorizeUrl });
 }
 
@@ -127,6 +157,7 @@ async function handleOAuthCallback(request: Request, env: Env, db: ReviewDatabas
     const userId = await db.completeOAuth({
       inviteId: transaction.invite_id,
       expectedUserId: transaction.expected_user_id,
+      sharedInvite: transaction.shared_invite,
       googleSubject: identity.sub,
       email: identity.email || null,
       displayName: identity.name || null,
@@ -153,7 +184,9 @@ async function handleApi(request: Request, env: Env, db: ReviewDatabase): Promis
   const url = new URL(request.url);
   const path = url.pathname;
 
-  if (request.method === "POST" && path === "/api/invitations/validate") return handleInvitation(request, env, db);
+  if (request.method === "POST" && path === "/api/invitations/validate") return handleInvitation(request, env);
+  if (request.method === "GET" && path === "/api/invitations/status") return json({ invited: await hasInvitationAccess(request, env) });
+  if (request.method === "POST" && path === "/api/oauth/start") return handleOAuthStart(request, env, db);
   if (request.method === "GET" && path === "/api/oauth/callback") return handleOAuthCallback(request, env, db);
 
   if (request.method === "GET" && path === "/api/me") {

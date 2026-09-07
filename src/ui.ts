@@ -44,8 +44,17 @@ export const reviewHtml = `<!doctype html>
         <input id="invitation" name="invitation" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://review.villow.app/#villow_invite=…" required>
         <p class="field-note">This link is private. Do not share it or paste it into another site.</p>
         <p id="invite-error" class="form-error" role="alert" hidden></p>
-        <button class="primary-button" type="submit">Continue with Google <span aria-hidden="true">→</span></button>
+        <button class="primary-button" type="submit">Open invitation <span aria-hidden="true">→</span></button>
       </form>
+      <div id="google-card" class="invite-card" hidden>
+        <div>
+          <p class="step-label">Invitation accepted</p>
+          <h2>Continue to your review</h2>
+          <p>Sign in with the dedicated review account to connect YouTube subscription access.</p>
+        </div>
+        <p id="google-error" class="form-error" role="alert" hidden></p>
+        <button id="continue-google" class="primary-button" type="button">Continue with Google <span aria-hidden="true">→</span></button>
+      </div>
     </section>
 
     <section id="review-view" class="review-shell" hidden>
@@ -78,7 +87,7 @@ export const reviewHtml = `<!doctype html>
       <section class="connect-panel" aria-labelledby="connect-title">
         <div>
           <p class="step-label">Extension connection</p>
-          <h2 id="connect-title">Connect the review build</h2>
+          <h2 id="connect-title">Connect Extension</h2>
           <p>Generate a one-time display of the private connect link, then paste it into the extension. Creating a new link does not expose Google credentials.</p>
         </div>
         <button id="create-connect-link" class="primary-button compact" type="button">Generate connect link</button>
@@ -199,13 +208,24 @@ export const reviewJs = String.raw`
   const cleanText = (value) => typeof value === "string" ? value : "";
   const formatDate = (value) => value ? new Intl.DateTimeFormat(undefined, { dateStyle:"medium", timeStyle:"short" }).format(new Date(value)) : "Never";
 
+  function showEntry(invited) {
+    state.invited = invited;
+    show("loading", false); show("review-view", false); show("invite-view");
+    show("invite-form", !invited); show("google-card", invited);
+  }
+
   function invitationParts(raw) {
     const url = new URL(raw);
     if (url.origin !== window.location.origin || (url.pathname !== "/" && url.pathname !== "")) throw new Error("Use the complete private review.villow.app invitation link.");
     const fragment = new URLSearchParams(url.hash.slice(1));
     const token = fragment.get("villow_invite");
-    if (!token || !/^[A-Za-z0-9_-]{40,200}$/.test(token)) throw new Error("This invitation link is incomplete or invalid.");
-    return { invitationOrigin: url.origin, token };
+    if (!token || token.length > 2048) throw new Error("This invitation link is incomplete or invalid.");
+    return { token };
+  }
+
+  async function validateInvitation(token) {
+    await api("/api/invitations/validate", { method:"POST", body:JSON.stringify({ token }) });
+    showEntry(true);
   }
 
   async function beginInvitation(event) {
@@ -214,10 +234,20 @@ export const reviewJs = String.raw`
     const submit = event.currentTarget.querySelector("button[type=submit]"); submit.disabled = true;
     try {
       const parts = invitationParts(byId("invitation").value.trim());
-      const result = await api("/api/invitations/validate", { method:"POST", body:JSON.stringify(parts) });
-      window.location.assign(result.authorizeUrl);
+      await validateInvitation(parts.token);
     } catch (cause) {
       error.textContent = cause.message || "This invitation could not be used."; error.hidden = false; submit.disabled = false;
+    }
+  }
+
+  async function continueWithGoogle() {
+    const error = byId("google-error"); error.hidden = true;
+    const button = byId("continue-google"); button.disabled = true;
+    try {
+      const result = await api("/api/oauth/start", { method:"POST", body:"{}" });
+      window.location.assign(result.authorizeUrl);
+    } catch (cause) {
+      error.textContent = cause.message || "Google sign-in could not be started."; error.hidden = false; button.disabled = false;
     }
   }
 
@@ -306,18 +336,35 @@ export const reviewJs = String.raw`
   async function boot() {
     const fragment = new URLSearchParams(location.hash.slice(1));
     const invite = fragment.get("villow_invite");
-    if (invite) { byId("invitation").value = location.origin + "/#villow_invite=" + invite; history.replaceState(null, "", location.pathname + location.search); }
+    let invitationError = "";
+    if (invite) {
+      history.replaceState(null, "", location.pathname + location.search);
+      try { await validateInvitation(invite); }
+      catch (error) { invitationError = error.message || "This invitation could not be used."; }
+    }
     try {
       const me = await api("/api/me"); state.csrf = me.csrfToken;
       byId("reviewer-label").textContent = me.user.email || me.user.displayName || "Authenticated reviewer";
-      show("loading", false); show("review-view");
+      show("loading", false); show("invite-view", false); show("review-view");
       await Promise.all([loadStatus(), loadTokens(), loadQueue({ quiet:true })]); startPolling();
     } catch (error) {
-      if (error.status !== 401) { byId("loading").querySelector("p").textContent = "The review environment is temporarily unavailable."; return; }
-      show("loading", false); show("invite-view");
+      if (error.status !== 401) {
+        show("invite-view", false); show("loading");
+        byId("loading").querySelector("p").textContent = "The review environment is temporarily unavailable.";
+        return;
+      }
+      if (!state.invited) {
+        try { state.invited = Boolean((await api("/api/invitations/status")).invited); }
+        catch { /* the fallback remains available */ }
+      }
+      showEntry(state.invited);
+      if (invitationError && !state.invited) {
+        const node = byId("invite-error"); node.textContent = invitationError; node.hidden = false;
+      }
     }
   }
   byId("invite-form").addEventListener("submit", beginInvitation);
+  byId("continue-google").addEventListener("click", continueWithGoogle);
   byId("refresh-queue").addEventListener("click", () => loadQueue());
   byId("create-connect-link").addEventListener("click", createConnectLink);
   byId("copy-connect-link").addEventListener("click", async () => { await navigator.clipboard.writeText(byId("connect-link").value); message("Connect link copied."); });

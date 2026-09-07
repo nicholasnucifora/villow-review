@@ -7,6 +7,7 @@ export interface Env {
   REVIEW_GOOGLE_CLIENT_SECRET: string;
   REVIEW_TOKEN_ENCRYPTION_KEY: string;
   REVIEW_SESSION_SIGNING_KEY: string;
+  REVIEW_INVITE_TOKEN: string;
   ALLOWED_EXTENSION_ORIGINS: string;
 }
 

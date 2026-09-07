@@ -2,7 +2,7 @@
 
 ## Protected assets
 
-- raw invitations, website session tokens, CSRF tokens, and extension bearer tokens;
+- the raw shared invitation, invitation-gate cookies, website session tokens, CSRF tokens, and extension bearer tokens;
 - Google access/refresh tokens and reviewer Google subject/email;
 - subscription identities and saved-video metadata;
 - the Supabase server secret (`sb_secret_…`, exposed by Supabase as `service_role`), OAuth client secret, token-encryption key, and session-signing key;
@@ -12,7 +12,9 @@
 
 ### Public browser to review Worker
 
-Invitation tokens arrive only in a POST body after the browser validates a `review.villow.app` fragment link. They never appear in server URL query strings. Validation is generic, database-backed, rate-limited, expiry-aware, and does not reveal other accounts. Invitations are high entropy, hashed, revocable, and bound atomically to the first Google subject.
+The shared invitation arrives only in a POST body after the browser reads it from a `review.villow.app` fragment. It never appears in a server URL, query string, log, or frontend bundle, and the fragment is removed immediately with `history.replaceState`. The Worker compares it with `REVIEW_INVITE_TOKEN` in constant time after a database-backed rate-limit check.
+
+Successful validation sets a `Secure`, `HttpOnly`, `SameSite=Lax` browser-session gate cookie. Its signature is derived from the current invitation secret, so rotating `REVIEW_INVITE_TOKEN` invalidates both the old URL and existing gate cookies. The invitation is reusable, has no per-use database row or application expiry, and remains separate from website sessions and extension bearer tokens.
 
 Website sessions use a signed opaque cookie plus a server-side hashed record. The session cookie is `Secure`, `HttpOnly`, `SameSite=Lax`, expiring, and revocable. State-changing website requests require same-origin plus a per-session double-submit CSRF token whose hash is stored server-side.
 
@@ -26,7 +28,7 @@ CORS compares exact packaged-extension origins from configuration and echoes onl
 
 ### Worker to storage and external services
 
-Only the Worker/operator service role can access review tables. RLS is enabled without browser policies. Ownership filters or owner-scoped RPC arguments are applied to every queue, token, subscription, session, and totals operation. The complete OAuth claim, queue insert/duplicate result, daily upsert/totals read, subscription replacement, and safe invitation unbind use database transactions.
+Only the Worker/operator service role can access review tables. RLS is enabled without browser policies. Ownership filters or owner-scoped RPC arguments are applied to every queue, token, subscription, session, and totals operation. OAuth completion, queue insert/duplicate result, daily upsert/totals read, and subscription replacement use database transactions.
 
 The subscriptions route is the only runtime path that calls Google/YouTube. The queue path accepts validated extension metadata and performs no outbound metadata fetch, preventing SSRF and quota coupling.
 

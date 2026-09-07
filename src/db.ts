@@ -53,17 +53,11 @@ export class ReviewDatabase {
     return this.call<T>(`rpc/${name}`, { method: "POST", body: JSON.stringify(body) });
   }
 
-  async findValidInvite(tokenHash: string): Promise<{ id: string } | null> {
-    const rows = await this.call<Array<{ id: string }>>(
-      `review_invites?select=id&token_hash=eq.${encodeURIComponent(tokenHash)}&revoked_at=is.null&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&limit=1`,
-    );
-    return rows[0] || null;
-  }
-
   async createOAuthTransaction(input: {
     stateHash: string;
     inviteId?: string;
     expectedUserId?: string;
+    sharedInvite?: boolean;
     encryptedVerifier: string;
     expiresAt: string;
   }): Promise<void> {
@@ -74,6 +68,7 @@ export class ReviewDatabase {
         state_hash: input.stateHash,
         invite_id: input.inviteId || null,
         expected_user_id: input.expectedUserId || null,
+        shared_invite: input.sharedInvite || false,
         encrypted_code_verifier: input.encryptedVerifier,
         expires_at: input.expiresAt,
       }),
@@ -84,12 +79,14 @@ export class ReviewDatabase {
     id: string;
     invite_id: string | null;
     expected_user_id: string | null;
+    shared_invite: boolean;
     encrypted_code_verifier: string;
   } | null> {
     const rows = await this.rpc<Array<{
       id: string;
       invite_id: string | null;
       expected_user_id: string | null;
+      shared_invite: boolean;
       encrypted_code_verifier: string;
     }>>("consume_review_oauth_transaction", { p_state_hash: stateHash });
     return rows[0] || null;
@@ -98,6 +95,7 @@ export class ReviewDatabase {
   async completeOAuth(input: {
     inviteId: string | null;
     expectedUserId: string | null;
+    sharedInvite: boolean;
     googleSubject: string;
     email: string | null;
     displayName: string | null;
@@ -109,6 +107,7 @@ export class ReviewDatabase {
     const result = await this.rpc<{ user_id: string } | Array<{ user_id: string }>>("complete_review_oauth", {
       p_invite_id: input.inviteId,
       p_expected_user_id: input.expectedUserId,
+      p_shared_invite: input.sharedInvite,
       p_google_subject: input.googleSubject,
       p_email: input.email,
       p_display_name: input.displayName,

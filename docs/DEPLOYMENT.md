@@ -25,6 +25,7 @@ In the Supabase dashboard, open **SQL Editor**, select **New query**, and run th
 1. `supabase/migrations/202609070001_review_environment.sql`
 2. `supabase/migrations/202609070002_operator_functions.sql`
 3. `supabase/migrations/202609070003_data_api_permissions.sql`
+4. `supabase/migrations/202609070004_shared_invitation_gate.sql`
 
 Wait for a successful result after each file before running the next. The migrations enable RLS on every review table, create no anon/authenticated-browser policy, restrict function execution, and explicitly grant the server-side `service_role` only the Data API operations it needs.
 
@@ -76,12 +77,13 @@ npx wrangler secret put REVIEW_GOOGLE_CLIENT_ID --config wrangler.jsonc
 npx wrangler secret put REVIEW_GOOGLE_CLIENT_SECRET --config wrangler.jsonc
 npx wrangler secret put REVIEW_TOKEN_ENCRYPTION_KEY --config wrangler.jsonc
 npx wrangler secret put REVIEW_SESSION_SIGNING_KEY --config wrangler.jsonc
+npx wrangler secret put REVIEW_INVITE_TOKEN --config wrangler.jsonc
 npx wrangler secret put ALLOWED_EXTENSION_ORIGINS --config wrangler.jsonc
 ```
 
-For `REVIEW_SUPABASE_SERVICE_ROLE_KEY`, paste the dedicated `sb_secret_…` value. For `REVIEW_SUPABASE_URL`, paste the `https://<project-ref>.supabase.co` project URL. The final value of `ALLOWED_EXTENSION_ORIGINS` is not available until the first Chrome Web Store draft upload assigns the stable extension ID.
+For `REVIEW_SUPABASE_SERVICE_ROLE_KEY`, paste the dedicated `sb_secret_…` value. For `REVIEW_SUPABASE_URL`, paste the `https://<project-ref>.supabase.co` project URL. Use a high-entropy `REVIEW_INVITE_TOKEN` that will remain stable for at least six months; rotate it only to revoke the shared invitation. The final value of `ALLOWED_EXTENSION_ORIGINS` is not available until the first Chrome Web Store draft upload assigns the stable extension ID.
 
-Cloudflare Worker secrets are scoped to a Worker (and, when used, its Wrangler environment). Secrets attached to the `villow-site` Worker are not shared with `villow-review`: they do not satisfy `villow-review` bindings, and duplicate names on `villow-site` do not conflict with this Worker. Add all seven required secrets to `villow-review`; remove copies from `villow-site` only if that site's own code does not use them.
+Cloudflare Worker secrets are scoped to a Worker (and, when used, its Wrangler environment). Secrets attached to the `villow-site` Worker are not shared with `villow-review`: they do not satisfy `villow-review` bindings, and duplicate names on `villow-site` do not conflict with this Worker. Add all eight required secrets to `villow-review`; remove copies from `villow-site` only if that site's own code does not use them.
 
 In the dashboard, add them under **Workers & Pages → villow-review → Settings → Variables and Secrets**, choose type **Secret** for every name, and select **Deploy** to apply the changes. Do not put them under **Settings → Build → Build Variables and Secrets** as a substitute: build secrets exist only while the Git build is running and are not runtime bindings for the deployed Worker.
 

@@ -2,11 +2,11 @@
 
 Use two isolated browser profiles and two dedicated test Google accounts for cross-user checks. Never use a personal account.
 
-1. Generate a new invitation with `invite:create`.
-2. Open `https://review.villow.app` and paste the complete fragment invitation.
+1. Confirm the long-lived shared `REVIEW_INVITE_TOKEN` is set on the Worker.
+2. Open the complete `https://review.villow.app/#villow_invite=<secret>` URL and confirm the fragment is cleared automatically without a paste step. Separately verify that the paste box remains available at the bare origin.
 3. Sign into an allowlisted test account and grant `youtube.readonly`.
 4. Confirm the site shows subscription access connected and a successful refresh timestamp.
-5. Generate and copy an extension connect link.
+5. Under **Connect Extension**, generate and copy an extension connect link.
 6. Connect the packaged extension and run **Test connection**.
 7. Run **Refresh subscriptions** and enable **Hide channels you are subscribed to**.
 8. Confirm at least one seeded channel matches by handle/title on a home-feed tile.
@@ -24,4 +24,4 @@ Use two isolated browser profiles and two dedicated test Google accounts for cro
 20. Revoke the extension token and confirm `GET /api/ping` and queue save return `401`; confirm a Google failure never returns `401`.
 21. Test an unlisted extension origin and confirm preflight/requests are rejected without a wildcard CORS header and all responses contain `Vary: Origin`.
 22. Confirm `https://villow.app`, its index, and its policy files are unchanged and no review credentials/bindings exist in that deployment.
-23. Revoke the invitation/connect link and delete review data after the test.
+23. Revoke the connect link and delete review data after the test. Rotate the shared invitation only when it must be revoked, not after each use.

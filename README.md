@@ -6,10 +6,10 @@ It intentionally does not contain or import the public `villow.app` site or the 
 
 ## What is implemented
 
-- Private fragment-based invitation onboarding with first-Google-account binding
+- Private fragment-based onboarding through one reusable, rotatable Worker secret
 - Server-side Google OAuth authorization-code flow with state, PKCE, exact callback URI, and offline access
 - AES-256-GCM encryption for Google access and refresh tokens
-- Hashed invitation, website-session, CSRF, and extension-connect credentials
+- Server-only invitation validation plus hashed website-session, CSRF, and extension-connect credentials
 - Revocable, server-side website sessions in `Secure`, `HttpOnly`, `SameSite=Lax` cookies
 - Exact extension bearer API for ping, queue saving, subscriptions, shared daily totals, queue status, and removal
 - Live paginated YouTube subscription refresh, with channel ID, handle when available, and title

@@ -24,7 +24,7 @@ This account contains no personal data and is used only for this review. It is p
 1. Open the complete private invitation link above.
 2. Continue with Google and sign in using the dedicated account.
 3. Approve the requested YouTube read-only access.
-4. On the review page, select **Generate connect link**, then **Copy**.
+4. On the review page, find **Connect Extension**, select **Generate connect link**, then **Copy**.
 5. Open the Villow extension options, paste the complete connect link, and select **Test connection**.
 6. Select **Refresh subscriptions**.
 
