@@ -142,8 +142,29 @@ async function handleOAuthStart(request: Request, env: Env, db: ReviewDatabase):
     throw new HttpError(400, "Request is invalid.");
   }
   if (!await hasInvitationAccess(request, env)) throw new HttpError(403, "A valid review invitation is required.");
-  const authorizeUrl = await createOAuthTransaction(db, env, { sharedInvite: true });
-  return json({ authorizeUrl });
+  try {
+    const authorizeUrl = await createOAuthTransaction(db, env, { sharedInvite: true });
+    return json({ authorizeUrl });
+  } catch (error) {
+    let reference = "OAUTH_RUNTIME";
+    if (error instanceof DatabaseError) {
+      if (error.status === 401 || error.status === 403 || error.code === "42501") {
+        reference = "OAUTH_STORAGE_AUTH";
+      } else if (
+        error.code === "PGRST202" ||
+        error.code === "PGRST204" ||
+        error.code === "23514" ||
+        /shared_invite|schema cache|column/i.test(error.message)
+      ) {
+        reference = "OAUTH_STORAGE_SCHEMA";
+      } else {
+        reference = `OAUTH_STORAGE_${error.status}`;
+      }
+    } else if (error instanceof Error && /REVIEW_TOKEN_ENCRYPTION_KEY/i.test(error.message)) {
+      reference = "OAUTH_ENCRYPTION_KEY";
+    }
+    throw new HttpError(503, `Google sign-in could not be started. Reference: ${reference}.`);
+  }
 }
 
 async function handleOAuthCallback(request: Request, env: Env, db: ReviewDatabase): Promise<Response> {

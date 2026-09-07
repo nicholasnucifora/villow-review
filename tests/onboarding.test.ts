@@ -136,6 +136,41 @@ describe("invitation onboarding", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("reports a safe diagnostic when the OAuth encryption key is malformed", async () => {
+    const signed = await signValue("shared-invite-v1", await sha256(env.REVIEW_INVITE_TOKEN));
+    const result = await workerFetch(new Request("https://review.villow.app/api/oauth/start", {
+      method: "POST",
+      headers: {
+        Origin: "https://review.villow.app",
+        "Content-Type": "application/json",
+        Cookie: `villow_review_invited=${encodeURIComponent(signed)}`,
+      },
+      body: "{}",
+    }), { ...env, REVIEW_TOKEN_ENCRYPTION_KEY: "not-a-valid-encryption-key" });
+    expect(result.status).toBe(503);
+    expect(await result.json()).toEqual({
+      message: "Google sign-in could not be started. Reference: OAUTH_ENCRYPTION_KEY.",
+    });
+  });
+
+  it("reports a safe diagnostic when Supabase rejects OAuth storage credentials", async () => {
+    const signed = await signValue("shared-invite-v1", await sha256(env.REVIEW_INVITE_TOKEN));
+    vi.stubGlobal("fetch", vi.fn(async () => response({ message: "Invalid API key" }, 401)));
+    const result = await workerFetch(new Request("https://review.villow.app/api/oauth/start", {
+      method: "POST",
+      headers: {
+        Origin: "https://review.villow.app",
+        "Content-Type": "application/json",
+        Cookie: `villow_review_invited=${encodeURIComponent(signed)}`,
+      },
+      body: "{}",
+    }), env);
+    expect(result.status).toBe(503);
+    expect(await result.json()).toEqual({
+      message: "Google sign-in could not be started. Reference: OAUTH_STORAGE_AUTH.",
+    });
+  });
+
   it("consumes shared-invite OAuth state and creates a revocable user session", async () => {
     const state = "s".repeat(64);
     const encryptedVerifier = await encryptSecret("verifier", zeroKey);
