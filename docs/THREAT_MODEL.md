@@ -12,7 +12,7 @@
 
 ### Public browser to review Worker
 
-The shared invitation arrives only in a POST body after the browser reads it from a `review.villow.app` fragment. It never appears in a server URL, query string, log, or frontend bundle, and the fragment is removed immediately with `history.replaceState`. The Worker compares it with `REVIEW_INVITE_TOKEN` in constant time after a database-backed rate-limit check.
+The shared invitation arrives only in a POST body after the browser reads it from a `review.villow.app` fragment. It never appears in a server URL, query string, log, or frontend bundle, and the fragment is removed immediately with `history.replaceState`. The Worker compares it with `REVIEW_INVITE_TOKEN` in constant time. Failed attempts use the database-backed rate limiter when available; a rate-limit storage outage cannot block a valid high-entropy invitation or turn an invalid invitation into a server error.
 
 Successful validation sets a `Secure`, `HttpOnly`, `SameSite=Lax` browser-session gate cookie. Its signature is derived from the current invitation secret, so rotating `REVIEW_INVITE_TOKEN` invalidates both the old URL and existing gate cookies. The invitation is reusable, has no per-use database row or application expiry, and remains separate from website sessions and extension bearer tokens.
 
@@ -39,7 +39,7 @@ The subscriptions route is the only runtime path that calls Google/YouTube. The 
 - control-character rejection and inert DOM rendering through `textContent`
 - strict YouTube video ID, canonical source URL, thumbnail host/path, client, UUID, date, timezone, duration, and counter validation
 - CSP, `frame-ancestors 'none'`, no-referrer, MIME sniffing protection, restrictive permissions policy, no-store caching, and no analytics/third-party scripts
-- database-backed rate limits for invitation and extension traffic
+- database-backed rate limits for failed invitation attempts and extension traffic
 - no open redirects, arbitrary backend fetches, or sensitive logs
 
 ## Residual risks

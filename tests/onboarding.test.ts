@@ -63,6 +63,17 @@ describe("invitation onboarding", () => {
     }
   });
 
+  it("rejects a wrong invitation without turning a rate-limit outage into a 503", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("rate-limit store unavailable"); }));
+    const result = await workerFetch(new Request("https://review.villow.app/api/invitations/validate", {
+      method: "POST",
+      headers: { Origin: "https://review.villow.app", "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "wrong-review-invitation" }),
+    }), env);
+    expect(result.status).toBe(403);
+    expect(await result.json()).toEqual({ message: "This invitation could not be used." });
+  });
+
   it("rejects validation requests from another site", async () => {
     const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
     const result = await workerFetch(new Request("https://review.villow.app/api/invitations/validate", {

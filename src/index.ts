@@ -121,8 +121,15 @@ async function handleInvitation(request: Request, env: Env): Promise<Response> {
     throw new HttpError(400, "This invitation could not be used.");
   }
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  await requireRateLimit(env, "invitation", ip, 12, 600);
-  if (!await constantTimeEqual(input.token, reviewInviteToken(env))) throw new HttpError(403, "This invitation could not be used.");
+  if (!await constantTimeEqual(input.token, reviewInviteToken(env))) {
+    try {
+      await requireRateLimit(env, "invitation", ip, 12, 600);
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 429) throw error;
+      // The high-entropy secret still fails closed when the rate-limit store is unavailable.
+    }
+    throw new HttpError(403, "This invitation could not be used.");
+  }
   return withCookies(json({ invited: true }), [
     cookie(INVITE_COOKIE, await invitationCookieValue(env), env, { httpOnly: true }),
   ]);
