@@ -10,6 +10,11 @@ export const GOOGLE_SCOPES = [
 
 export class GoogleReauthRequired extends Error {}
 export class GoogleUnavailable extends Error {}
+export class OAuthTransactionSetupError extends Error {
+  constructor(public readonly stage: "encryption" | "storage") {
+    super("OAuth transaction setup failed");
+  }
+}
 
 interface GoogleTokenResponse {
   access_token: string;
@@ -50,14 +55,25 @@ export async function createOAuthTransaction(
   const state = randomToken(32);
   const verifier = randomToken(64);
   const challenge = await sha256(verifier);
-  await db.createOAuthTransaction({
-    stateHash: await sha256(state),
-    inviteId: binding.inviteId,
-    expectedUserId: binding.expectedUserId,
-    sharedInvite: binding.sharedInvite,
-    encryptedVerifier: await encryptSecret(verifier, env.REVIEW_TOKEN_ENCRYPTION_KEY),
-    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-  });
+  let encryptedVerifier: string;
+  try {
+    encryptedVerifier = await encryptSecret(verifier, env.REVIEW_TOKEN_ENCRYPTION_KEY);
+  } catch {
+    throw new OAuthTransactionSetupError("encryption");
+  }
+  try {
+    await db.createOAuthTransaction({
+      stateHash: await sha256(state),
+      inviteId: binding.inviteId,
+      expectedUserId: binding.expectedUserId,
+      sharedInvite: binding.sharedInvite,
+      encryptedVerifier,
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    });
+  } catch (error) {
+    if (error instanceof DatabaseError) throw error;
+    throw new OAuthTransactionSetupError("storage");
+  }
 
   const redirectUri = `${new URL(env.REVIEW_ORIGIN).origin}/api/oauth/callback`;
   const params = new URLSearchParams({

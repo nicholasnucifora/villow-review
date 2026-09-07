@@ -2,7 +2,7 @@ import { constantTimeEqual, decryptSecret, encryptSecret, randomToken, sha256, s
 import { DatabaseError, ReviewDatabase, supabaseRequestHeaders } from "./db";
 import {
   createOAuthTransaction, exchangeAuthorizationCode, fetchGoogleIdentity, GoogleReauthRequired,
-  GoogleUnavailable, grantedScopes, hasRequiredScopes, synchronizeSubscriptions,
+  GoogleUnavailable, grantedScopes, hasRequiredScopes, OAuthTransactionSetupError, synchronizeSubscriptions,
 } from "./google";
 import {
   finalize, html, HttpError, isAllowedExtensionOrigin, isExpectedHost, json, preflight,
@@ -160,8 +160,8 @@ async function handleOAuthStart(request: Request, env: Env, db: ReviewDatabase):
       } else {
         reference = `OAUTH_STORAGE_${error.status}`;
       }
-    } else if (error instanceof Error && /REVIEW_TOKEN_ENCRYPTION_KEY/i.test(error.message)) {
-      reference = "OAUTH_ENCRYPTION_KEY";
+    } else if (error instanceof OAuthTransactionSetupError) {
+      reference = error.stage === "encryption" ? "OAUTH_ENCRYPTION_KEY" : "OAUTH_STORAGE_NETWORK";
     }
     throw new HttpError(503, `Google sign-in could not be started. Reference: ${reference}.`);
   }
