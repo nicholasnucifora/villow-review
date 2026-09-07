@@ -248,6 +248,11 @@ describe("Google OAuth and subscriptions", () => {
   it("detects partial scope consent", () => {
     expect(hasRequiredScopes(["openid", "email"])).toBe(false);
     expect(hasRequiredScopes([...GOOGLE_SCOPES])).toBe(true);
+    expect(hasRequiredScopes([
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/youtube.readonly",
+    ])).toBe(true);
   });
 
   it("paginates subscriptions and returns id, handle, and title", async () => {

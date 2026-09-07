@@ -8,6 +8,8 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/youtube.readonly",
 ] as const;
 
+const GOOGLE_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+
 export class GoogleReauthRequired extends Error {}
 export class GoogleUnavailable extends Error {}
 export class OAuthTransactionSetupError extends Error {
@@ -127,7 +129,10 @@ export function grantedScopes(token: GoogleTokenResponse): string[] {
 }
 
 export function hasRequiredScopes(scopes: string[]): boolean {
-  return GOOGLE_SCOPES.every((scope) => scopes.includes(scope));
+  const granted = new Set(scopes);
+  return granted.has("openid")
+    && (granted.has("email") || granted.has(GOOGLE_EMAIL_SCOPE))
+    && granted.has("https://www.googleapis.com/auth/youtube.readonly");
 }
 
 async function refreshAccessToken(

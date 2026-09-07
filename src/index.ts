@@ -176,12 +176,16 @@ async function handleOAuthCallback(request: Request, env: Env, db: ReviewDatabas
   }
   const transaction = await db.consumeOAuthTransaction(await sha256(state));
   if (!transaction) return redirect("/?oauth=expired");
+  let callbackStage = "OAUTH_CALLBACK_DECRYPT";
   try {
     const verifier = await decryptSecret(transaction.encrypted_code_verifier, env.REVIEW_TOKEN_ENCRYPTION_KEY);
+    callbackStage = "OAUTH_CALLBACK_EXCHANGE";
     const tokens = await exchangeAuthorizationCode(env, code, verifier);
     const scopes = grantedScopes(tokens);
     if (!hasRequiredScopes(scopes)) return redirect("/?oauth=scope");
+    callbackStage = "OAUTH_CALLBACK_IDENTITY";
     const identity = await fetchGoogleIdentity(tokens.access_token);
+    callbackStage = "OAUTH_CALLBACK_STORE";
     const userId = await db.completeOAuth({
       inviteId: transaction.invite_id,
       expectedUserId: transaction.expected_user_id,
@@ -194,9 +198,11 @@ async function handleOAuthCallback(request: Request, env: Env, db: ReviewDatabas
       accessTokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
       grantedScopes: scopes,
     });
+    callbackStage = "OAUTH_CALLBACK_SESSION";
     const sessionToken = randomToken(48);
     const csrfToken = randomToken(32);
     await db.createSession(userId, await sha256(sessionToken), await sha256(csrfToken), new Date(Date.now() + 12 * 60 * 60_000).toISOString());
+    callbackStage = "OAUTH_CALLBACK_SIGN";
     const signedSession = await signValue(sessionToken, env.REVIEW_SESSION_SIGNING_KEY);
     return withCookies(redirect("/?connected=1"), [
       cookie(SESSION_COOKIE, signedSession, env, { httpOnly: true, maxAge: 43_200 }),
@@ -204,7 +210,7 @@ async function handleOAuthCallback(request: Request, env: Env, db: ReviewDatabas
     ]);
   } catch (error) {
     if (error instanceof DatabaseError && /invitation|different google account/i.test(error.message)) return redirect("/?oauth=account");
-    return redirect("/?oauth=failed");
+    return redirect(`/?oauth=failed&ref=${callbackStage}`);
   }
 }
 

@@ -334,6 +334,23 @@ export const reviewJs = String.raw`
     state.poller = window.setInterval(() => { if (!document.hidden) loadQueue({ quiet:true }); }, 60_000);
   }
   async function boot() {
+    const query = new URLSearchParams(location.search);
+    const oauthResult = query.get("oauth");
+    const rawReference = query.get("ref");
+    const oauthReference = rawReference && /^[A-Z0-9_]{1,64}$/.test(rawReference) ? rawReference : "";
+    const oauthMessages = {
+      scope: "Google sign-in did not grant all required permissions. Try again and approve YouTube read-only access.",
+      expired: "Google sign-in took too long to complete. Please try again.",
+      account: "This Google account cannot be used for this review. Use the same dedicated review account as before.",
+      failed: "Google sign-in could not be completed. Please try again.",
+    };
+    const oauthMessage = oauthResult
+      ? (oauthMessages[oauthResult] || oauthMessages.failed) + (oauthReference ? " Reference: " + oauthReference + "." : "")
+      : "";
+    if (oauthResult || query.has("connected")) {
+      query.delete("oauth"); query.delete("ref"); query.delete("connected");
+      history.replaceState(null, "", location.pathname + (query.size ? "?" + query : "") + location.hash);
+    }
     const fragment = new URLSearchParams(location.hash.slice(1));
     const invite = fragment.get("villow_invite");
     let invitationError = "";
@@ -358,6 +375,9 @@ export const reviewJs = String.raw`
         catch { /* the fallback remains available */ }
       }
       showEntry(state.invited);
+      if (oauthMessage && state.invited) {
+        const node = byId("google-error"); node.textContent = oauthMessage; node.hidden = false;
+      }
       if (invitationError && !state.invited) {
         const node = byId("invite-error"); node.textContent = invitationError; node.hidden = false;
       }
