@@ -110,6 +110,7 @@ export const reviewHtml = `<!doctype html>
           </div>
           <span id="queue-count" class="count-pill">0</span>
         </div>
+        <p class="queue-sync-note">Checks for new saves every 5 seconds while this tab is visible. <span id="queue-sync-status">Checking…</span></p>
         <div id="queue-error" class="inline-error" role="alert" hidden></div>
         <div id="queue-list" class="queue-grid"></div>
         <div id="queue-empty" class="empty-state" hidden>
@@ -176,6 +177,7 @@ input::placeholder { color:#96a2ac; }
 .connect-panel { margin-top:18px; display:grid; grid-template-columns:1fr auto; gap:22px 28px; align-items:center; box-shadow:none; }.connect-link-box,.token-list { grid-column:1/-1; }.connect-link-box { border-top:1px solid var(--line); padding-top:20px; }.copy-row { display:grid; grid-template-columns:1fr auto; gap:8px; margin-top:8px; }
 .token-list { display:grid; gap:8px; }.token-row { display:grid; grid-template-columns:1fr auto; gap:14px; align-items:center; padding:12px 0; border-top:1px solid var(--line); }.token-row p { margin:0; }.token-meta { font-size:.82rem; color:var(--muted); }.token-row button { min-height:36px; padding:6px 10px; }
 .queue-section { margin-top:52px; }.section-heading { display:flex; align-items:end; justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:18px; }.count-pill { min-width:34px; padding:5px 10px; text-align:center; color:#fff; background:var(--navy); border-radius:999px; font-size:.86rem; font-weight:800; }
+.queue-sync-note { margin:-6px 0 18px; color:var(--muted); font-size:.83rem; }
 .queue-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }.video-card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:12px; display:grid; grid-template-columns:150px minmax(0,1fr); gap:16px; }.video-thumb { width:150px; aspect-ratio:16/9; object-fit:cover; border-radius:9px; background:#e6eaed; }.video-copy { min-width:0; display:flex; flex-direction:column; }.video-copy h3 { margin:2px 0 4px; font-size:1rem; line-height:1.35; }.video-copy h3 a { color:var(--ink); text-decoration:none; }.video-copy h3 a:hover { text-decoration:underline; }.video-copy p { margin:0; color:var(--muted); font-size:.86rem; }.video-actions { display:flex; justify-content:space-between; align-items:end; gap:8px; margin-top:auto; padding-top:12px; }.remove-video { border:0; background:transparent; color:#8f3431; padding:4px; font-weight:700; font-size:.82rem; }
 .empty-state { min-height:300px; border:1px dashed #cbd4da; border-radius:16px; display:grid; place-content:center; justify-items:center; text-align:center; padding:40px; }.empty-state h3 { margin:10px 0 4px; }.empty-state p { max-width:480px; margin:0; color:var(--muted); }.empty-icon { display:grid; place-items:center; width:44px; height:44px; border-radius:50%; background:#eef1f3; color:var(--accent); font-size:1.5rem; }
 .privacy-strip { margin-top:52px; padding:22px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr; gap:32px; color:var(--muted); font-size:.9rem; }.privacy-strip p { margin:0; }.privacy-strip strong { color:var(--ink); }
@@ -189,7 +191,7 @@ footer { min-height:74px; border-top:1px solid var(--line); display:flex; justif
 
 export const reviewJs = String.raw`
 (() => {
-  const state = { csrf: "", poller: null };
+  const state = { csrf: "", poller: null, queueLoading: false, queueSnapshot: null };
   const byId = (id) => document.getElementById(id);
   const show = (id, value = true) => { byId(id).hidden = !value; };
   const message = (text, kind = "success") => {
@@ -305,13 +307,29 @@ export const reviewJs = String.raw`
     actions.append(added, remove); copy.append(title, channel, actions); card.append(thumb, copy); return card;
   }
   async function loadQueue({ quiet = false } = {}) {
+    if (state.queueLoading) return;
+    state.queueLoading = true;
     const error = byId("queue-error"); error.hidden = true;
+    const status = byId("queue-sync-status"); status.textContent = "Checking…";
+    const refresh = byId("refresh-queue"); refresh.disabled = true;
     try {
       const result = await api("/api/queue"); const videos = result.videos || [];
-      byId("queue-count").textContent = String(videos.length); const list = byId("queue-list"); list.replaceChildren(...videos.map(videoCard));
-      show("queue-empty", videos.length === 0);
+      const snapshot = JSON.stringify(videos);
+      if (snapshot !== state.queueSnapshot) {
+        byId("queue-count").textContent = String(videos.length);
+        byId("queue-list").replaceChildren(...videos.map(videoCard));
+        show("queue-empty", videos.length === 0);
+        state.queueSnapshot = snapshot;
+      }
+      status.textContent = "Last checked " + new Date().toLocaleTimeString([], { hour:"numeric", minute:"2-digit", second:"2-digit" }) + ".";
       if (!quiet) message("Queue refreshed.");
-    } catch (cause) { error.textContent = cause.message || "The queue could not be loaded. Try again."; error.hidden = false; }
+    } catch (cause) {
+      status.textContent = "Check failed. Retrying automatically.";
+      error.textContent = cause.message || "The queue could not be loaded. Try again."; error.hidden = false;
+    } finally {
+      state.queueLoading = false;
+      refresh.disabled = false;
+    }
   }
   async function removeVideo(id) {
     if (!window.confirm("Remove this video from the review queue?")) return;
@@ -331,7 +349,7 @@ export const reviewJs = String.raw`
   }
   function startPolling() {
     window.clearInterval(state.poller);
-    state.poller = window.setInterval(() => { if (!document.hidden) loadQueue({ quiet:true }); }, 60_000);
+    state.poller = window.setInterval(() => { if (!document.hidden) loadQueue({ quiet:true }); }, 5_000);
   }
   async function boot() {
     const query = new URLSearchParams(location.search);
@@ -391,7 +409,7 @@ export const reviewJs = String.raw`
   byId("reconnect-google").addEventListener("click", reconnectGoogle);
   byId("sign-out").addEventListener("click", signOut);
   byId("forget-review").addEventListener("click", forgetReview);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) loadQueue({ quiet:true }); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && state.csrf) loadQueue({ quiet:true }); });
   boot();
 })();
 `;
