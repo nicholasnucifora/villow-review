@@ -30,7 +30,31 @@ validated request date because sync_review_extension_day queries exactly that
 date: contribution rows use local_date and queue timestamps are converted with
 the request timezone before comparison. A response delayed across midnight keeps
 the queried date. There is no UTC bucket, rollover job, schema change, or migration
-required for this fix. Totals and per-video attribution retain their existing shape.
+required for the date-field fix. Totals keep their existing shape; the subsequent
+save-map metadata addition below requires migration 005.
+
+## Daily save details
+
+Migration 005 extends every `saves[videoId]` entry with the existing queue metadata.
+Before that migration, each entry contained only `source`.
+
+| Field | Value |
+|---|---|
+| `source` | Saving installation's `source_id`, as a string |
+| `savedAt` | Stored `saved_at` timestamp, serialized as ISO 8601 with an offset |
+| `present` | Boolean `true` for each existing queue row |
+| `played` | Boolean `played_at IS NOT NULL`, matching queue status |
+| `title` | Stored queue title |
+| `channel` | Stored `channel_name` |
+
+The map uses the existing account/date/timezone filters. A second installation
+receives the original receipt's metadata and timestamp. Deleted rows remain
+absent; no tombstones or playback tracking are introduced. The review page opens
+YouTube externally and does not itself record playback in `played_at`.
+
+Apply `202609090005_extension_day_save_details.sql` to activate these fields.
+The Worker already forwards the database map; a Worker deployment alone does
+not apply this database change.
 
 ## Addendum precedence
 

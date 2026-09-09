@@ -397,7 +397,10 @@ const validDay = {
 };
 const daySnapshot = {
   totals: { recommendationsSeen: 210, activeSeconds: 5400, saves: 4 },
-  saves: { [validQueue.videoId]: { source: validQueue.source } },
+  saves: { [validQueue.videoId]: {
+    source: validQueue.source, savedAt: "2026-09-07T05:42:00+00:00",
+    present: true, played: false, title: validQueue.title, channel: validQueue.channel,
+  } },
 };
 const extensionRoutes = [
   { path: "/api/ping", method: "GET", status: 200, result: {} },
@@ -505,6 +508,36 @@ describe("extension bearer boundary", () => {
 });
 
 describe("extension-day response date", () => {
+  it("preserves Chrome receipt details when a different Firefox installation syncs", async () => {
+    const otherSource = "44444444-4444-4444-8444-444444444444";
+    const rpcPayloads: unknown[] = [];
+    vi.stubGlobal("fetch", supabaseExtensionAuthMock((url, init) => {
+      if (!url.endsWith("/rpc/sync_review_extension_day")) return undefined;
+      rpcPayloads.push(JSON.parse(String(init?.body)));
+      return response(daySnapshot);
+    }));
+    for (const [source, client, origin] of [
+      [validQueue.source, "Chrome", extensionOrigin],
+      [otherSource, "Firefox", transportOrigins[3].origin!],
+    ]) {
+      const payload = { ...validDay, source, client };
+      const res = await workerFetch(extensionRequest("/api/extension-day", {
+        method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      }), env);
+      expect(res.status).toBe(200);
+      const snapshot = await res.json() as { saves: typeof daySnapshot.saves };
+      expect(snapshot.saves).toEqual(daySnapshot.saves);
+      const receipt = snapshot.saves[validQueue.videoId];
+      expect(receipt.source).toBe(validQueue.source);
+      expect(Date.parse(receipt.savedAt)).toBe(Date.parse("2026-09-07T05:42:00Z"));
+      expect(receipt.present).toBe(true);
+      expect(receipt.played).toBe(false);
+      expect(receipt.title).toBe(validQueue.title);
+      expect(receipt.channel).toBe(validQueue.channel);
+      expect(rpcPayloads.at(-1)).toEqual({ p_user_id: userId, p_payload: payload });
+    }
+  });
+
   it.each(["Australia/Sydney", "Australia/Brisbane"])("labels a delayed snapshot with its queried local day in %s", async (timezone) => {
     const payload = { ...validDay, timezone };
     let forwarded: unknown;

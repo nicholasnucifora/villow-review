@@ -19,7 +19,7 @@ Use two isolated browser profiles and two dedicated test Google accounts for cro
 15. While Google remains stale, save another video and confirm it reaches the queue. Inspect Google/YouTube request logs to confirm the save generated no API call.
 16. Reconnect Google and confirm subscription refresh recovers without rotating the extension token.
 17. Check `POST /api/extension-day` after a queue receipt: require `date` to match the requested local day, with totals and attribution included synchronously. Exercise Australia/Sydney and Australia/Brisbane around local midnight while UTC is still yesterday; a delayed previous-day response must keep its original date. Confirm Sydney daylight-saving boundaries too.
-18. Check `GET /api/queue/status` and confirm every returned entry contains boolean `played` and `present`.
+18. After applying migration 005, save in desktop Chrome and sync a different Firefox/Firefox-for-Android installation on the same account and local day. Require all six `saves[videoId]` fields: original `source`, actual `savedAt`, boolean `present`/`played`, `title`, and `channel`. Confirm the phone lists it without a local record, with matching time order and the expected local Added tooltip. Check `GET /api/queue/status` and confirm every returned entry contains boolean `played` and `present`.
 19. Remove an unplayed video and confirm it disappears. A repeated delete may return `404`, which the extension treats as success.
 20. Revoke the extension token and confirm `GET /api/ping` and queue save return `401`; confirm a Google failure never returns `401`.
 21. Confirm valid bearer requests succeed with no Origin, either Chrome origin, and both Firefox UUIDs across ping, save, subscriptions, extension-day, status, and delete. Supplied origins must be echoed on preflights and API errors; 429 must expose Retry-After. Missing/revoked tokens must still return 401. Preflights require Origin and Access-Control-Request-Method. Confirm Vary: Origin, absence of Access-Control-Allow-Credentials, and rejection of cross-origin website mutations even with valid session/CSRF tokens.
@@ -35,4 +35,5 @@ with Supabase roles (`anon`, `authenticated`, and `service_role`), then run
 The fixture transaction rolls back. Use a disposable database, never the live
 review database. This check covers local-midnight boundaries, Sydney daylight
 saving, Brisbane, cross-user isolation, attribution, cross-browser absolute
-upserts, and idempotent retries.
+upserts, idempotent retries, all six save-map fields, cross-browser receipt equality,
+played/unplayed flags, deleted and empty maps, and execution grants.

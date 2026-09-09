@@ -26,6 +26,9 @@ In the Supabase dashboard, open **SQL Editor**, select **New query**, and run th
 2. `supabase/migrations/202609070002_operator_functions.sql`
 3. `supabase/migrations/202609070003_data_api_permissions.sql`
 4. `supabase/migrations/202609070004_shared_invitation_gate.sql`
+5. `supabase/migrations/202609090005_extension_day_save_details.sql`
+
+For an existing instance, apply only migrations it has not already received. Migration 005 adds the five missing save-map fields using existing queue columns; it replaces one function without changing tables or counters. Existing rows need no backfill. The Worker already forwards this map, so deploying the Worker alone does not activate the save-map change.
 
 Wait for a successful result after each file before running the next. The migrations enable RLS on every review table, create no anon/authenticated-browser policy, restrict function execution, and explicitly grant the server-side `service_role` only the Data API operations it needs.
 
@@ -99,7 +102,8 @@ ALLOWED_EXTENSION_ORIGINS is no longer read or required in any environment.
 An existing Worker secret with that name is harmless and may be removed separately.
 Deploying the Worker activates both the Firefox fix and the extension-day response
 date. The existing database function already buckets by the supplied local date
-and timezone; no database migration is needed.
+and timezone; no database migration is needed for those two earlier fixes.
+The subsequent save-map metadata addition requires migration 005, listed above.
 
 ## Build and deploy
 
