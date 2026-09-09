@@ -8,7 +8,6 @@ export interface Env {
   REVIEW_TOKEN_ENCRYPTION_KEY: string;
   REVIEW_SESSION_SIGNING_KEY: string;
   REVIEW_INVITE_TOKEN: string;
-  ALLOWED_EXTENSION_ORIGINS: string;
 }
 
 export interface ExecutionContextLike {

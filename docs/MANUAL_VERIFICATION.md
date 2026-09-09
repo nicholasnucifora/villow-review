@@ -7,7 +7,7 @@ Use two isolated browser profiles and two dedicated test Google accounts for cro
 3. Sign into an allowlisted test account and grant `youtube.readonly`.
 4. Confirm the site shows subscription access connected and a successful refresh timestamp.
 5. Under **Connect Extension**, generate and copy an extension connect link.
-6. Connect the packaged extension and run **Test connection**.
+6. Connect the packaged extension and run **Test connection** in Chrome and in two fresh Firefox profiles with different installation UUIDs.
 7. Run **Refresh subscriptions** and enable **Hide channels you are subscribed to**.
 8. Confirm at least one seeded channel matches by handle/title on a home-feed tile.
 9. Save an eligible video from an unsubscribed channel.
@@ -18,10 +18,21 @@ Use two isolated browser profiles and two dedicated test Google accounts for cro
 14. Confirm `GET /api/subscriptions` returns `503` with exactly `{"message":"Reconnect Google in Villow to refresh your subscriptions."}` and the previous subscription cache remains.
 15. While Google remains stale, save another video and confirm it reaches the queue. Inspect Google/YouTube request logs to confirm the save generated no API call.
 16. Reconnect Google and confirm subscription refresh recovers without rotating the extension token.
-17. Check `POST /api/extension-day` totals after a queue receipt and confirm the new save is included synchronously.
+17. Check `POST /api/extension-day` after a queue receipt: require `date` to match the requested local day, with totals and attribution included synchronously. Exercise Australia/Sydney and Australia/Brisbane around local midnight while UTC is still yesterday; a delayed previous-day response must keep its original date. Confirm Sydney daylight-saving boundaries too.
 18. Check `GET /api/queue/status` and confirm every returned entry contains boolean `played` and `present`.
 19. Remove an unplayed video and confirm it disappears. A repeated delete may return `404`, which the extension treats as success.
 20. Revoke the extension token and confirm `GET /api/ping` and queue save return `401`; confirm a Google failure never returns `401`.
-21. Confirm an originless service-worker request with a valid bearer token succeeds, an originless preflight is rejected, and a request carrying an unlisted origin is rejected without a wildcard CORS header. Confirm all responses contain `Vary: Origin`.
+21. Confirm valid bearer requests succeed with no Origin, either Chrome origin, and both Firefox UUIDs across ping, save, subscriptions, extension-day, status, and delete. Supplied origins must be echoed on preflights and API errors; 429 must expose Retry-After. Missing/revoked tokens must still return 401. Preflights require Origin and Access-Control-Request-Method. Confirm Vary: Origin, absence of Access-Control-Allow-Credentials, and rejection of cross-origin website mutations even with valid session/CSRF tokens.
 22. Confirm `https://villow.app`, its index, and its policy files are unchanged and no review credentials/bindings exist in that deployment.
 23. Revoke the connect link and delete review data after the test. Rotate the shared invitation only when it must be revoked, not after each use.
+
+## Database day regression check
+
+The automated Worker suite is run with `npm test`. To verify the existing SQL
+aggregation, apply the repository migrations to a disposable PostgreSQL database
+with Supabase roles (`anon`, `authenticated`, and `service_role`), then run
+`psql -X -v ON_ERROR_STOP=1 -d <disposable-database> -f tests/extension-day.sql`.
+The fixture transaction rolls back. Use a disposable database, never the live
+review database. This check covers local-midnight boundaries, Sydney daylight
+saving, Brisbane, cross-user isolation, attribution, cross-browser absolute
+upserts, and idempotent retries.

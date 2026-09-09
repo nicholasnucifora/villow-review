@@ -24,7 +24,6 @@ const env: Env = {
   REVIEW_TOKEN_ENCRYPTION_KEY: zeroKey,
   REVIEW_SESSION_SIGNING_KEY: zeroKey,
   REVIEW_INVITE_TOKEN: "shared-review-invitation-secret",
-  ALLOWED_EXTENSION_ORIGINS: extensionOrigin,
 };
 
 const validQueue: QueuePayload = {
@@ -148,13 +147,16 @@ describe("queue metadata validation", () => {
 });
 
 describe("CORS and bearer authentication", () => {
-  it("answers allowed preflight with the exact origin and Vary", async () => {
-    const result = await workerFetch(extensionRequest("/api/queue", {
+  it.each([extensionOrigin, "moz-extension://8c861621-7117-4eb8-b9d1-1475157284c0", "moz-extension://165a11ac-170f-4f1e-a41c-d75abecf969d", "https://client.example"])("answers preflight from %s without bearer authentication", async (origin) => {
+    const result = await workerFetch(new Request("https://review.villow.app/api/queue", {
       method: "OPTIONS",
-      headers: { Origin: extensionOrigin, "Access-Control-Request-Headers": "authorization,content-type" },
+      headers: { Origin: origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type" },
     }), env);
     expect(result.status).toBe(204);
-    expect(result.headers.get("Access-Control-Allow-Origin")).toBe(extensionOrigin);
+    expect(result.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+    expect(result.headers.get("Access-Control-Allow-Headers")).toBe("Authorization, Content-Type");
+    expect(result.headers.get("Access-Control-Allow-Methods")).toBe("GET, POST, DELETE, OPTIONS");
+    expect(result.headers.get("Access-Control-Allow-Credentials")).toBeNull();
     expect(result.headers.get("Access-Control-Allow-Origin")).not.toBe("*");
     expect(result.headers.get("Vary")).toContain("Origin");
     expect(result.headers.get("Access-Control-Expose-Headers")).toContain("Retry-After");
@@ -167,15 +169,6 @@ describe("CORS and bearer authentication", () => {
     }), env);
     expect(result.status).toBe(403);
     expect(result.headers.get("Access-Control-Allow-Origin")).toBeNull();
-  });
-
-  it("rejects an unconfigured development extension origin", async () => {
-    const result = await workerFetch(new Request("https://review.villow.app/api/ping", {
-      headers: { Origin: `chrome-extension://${"b".repeat(32)}`, Authorization: `Bearer ${token}` },
-    }), env);
-    expect(result.status).toBe(403);
-    expect(result.headers.get("Access-Control-Allow-Origin")).toBeNull();
-    expect(result.headers.get("Vary")).toContain("Origin");
   });
 
   it("authenticates an originless privileged extension request by bearer token", async () => {
@@ -386,5 +379,172 @@ describe("cross-user isolation and optional routes", () => {
   it("does not serve the Worker on the main Villow host", async () => {
     const result = await workerFetch(new Request("https://villow.app/"), env);
     expect(result.status).toBe(404);
+  });
+});
+
+const transportOrigins = [
+  { label: "Chrome without Origin", origin: null },
+  { label: "Chrome with Origin", origin: extensionOrigin },
+  { label: "another Chrome installation", origin: `chrome-extension://${"b".repeat(32)}` },
+  { label: "Firefox installation one", origin: "moz-extension://8c861621-7117-4eb8-b9d1-1475157284c0" },
+  { label: "Firefox installation two", origin: "moz-extension://165a11ac-170f-4f1e-a41c-d75abecf969d" },
+  { label: "web origin holding a bearer token", origin: "https://client.example" },
+];
+const validDay = {
+  date: "2026-09-07", timezone: "Australia/Sydney", source: validQueue.source, client: "Chrome",
+  contributed: { recommendationsSeen: 128, activeSeconds: 3600, externalSaves: 2 },
+  config: { recommendationLimitPerDay: 40, saveLimitPerDay: 5, timeLimitSecondsPerDay: 1800, youTubeBlocked: false },
+};
+const daySnapshot = {
+  totals: { recommendationsSeen: 210, activeSeconds: 5400, saves: 4 },
+  saves: { [validQueue.videoId]: { source: validQueue.source } },
+};
+const extensionRoutes = [
+  { path: "/api/ping", method: "GET", status: 200, result: {} },
+  { path: "/api/subscriptions", method: "GET", status: 200, result: { channels: [] } },
+  { path: "/api/queue", method: "POST", body: validQueue, status: 201, result: { saved: true, videoId: validQueue.videoId } },
+  { path: "/api/extension-day", method: "POST", body: validDay, status: 200, result: { ...daySnapshot, date: validDay.date } },
+  { path: "/api/queue/status", method: "GET", status: 200, result: { videos: {} } },
+  { path: `/api/queue/${validQueue.videoId}`, method: "DELETE", status: 200, result: { removed: true } },
+];
+
+describe.each(transportOrigins)("$label transport compatibility", ({ origin }) => {
+  it.each(extensionRoutes)("$method $path keeps its success contract", async ({ path, method, body, status, result }) => {
+    const mock = supabaseExtensionAuthMock((url) => {
+      if (url.endsWith("/rpc/save_review_queue_video")) return response({ inserted: true });
+      if (url.endsWith("/rpc/sync_review_extension_day")) return response(daySnapshot);
+      if (url.endsWith("/rpc/get_review_queue_status")) return response({ videos: {} });
+      if (url.endsWith("/rpc/begin_review_subscription_sync")) return response({ action: "cached" });
+      if (url.includes("/review_subscriptions?")) return response([]);
+      if (url.includes("/review_queue_videos?")) return response([{ id: "queue-id" }]);
+      return undefined;
+    });
+    vi.stubGlobal("fetch", mock);
+    const headers = new Headers({ Authorization: `Bearer ${token}` });
+    if (origin) headers.set("Origin", origin);
+    if (body) headers.set("Content-Type", "application/json");
+    const res = await workerFetch(new Request(`${env.REVIEW_ORIGIN}${path}`, {
+      method, headers, ...(body ? { body: JSON.stringify({ ...body, client: origin?.startsWith("moz-extension:") ? "Firefox" : "Chrome" }) } : {}),
+    }), env);
+    if (origin) {
+      const preflight = await workerFetch(new Request(`${env.REVIEW_ORIGIN}${path}`, {
+        method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": method, "Access-Control-Request-Headers": "authorization,content-type" },
+      }), env);
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+    }
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual(result);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+    expect(res.headers.get("Vary")).toContain("Origin");
+    expect(mock.mock.calls.some(([url]) => /googleapis|youtube\/v3|oembed/i.test(String(url)))).toBe(false);
+  });
+});
+
+describe("extension bearer boundary", () => {
+  it.each(extensionRoutes)("$method $path rejects missing, malformed, and revoked tokens", async ({ path, method, body }) => {
+    for (const authorization of [null, "Bearer short", `Bearer ${token}`]) {
+      const mock = supabaseExtensionAuthMock((url) => url.includes("review_extension_tokens?") ? response([]) : undefined);
+      vi.stubGlobal("fetch", mock);
+      const headers = new Headers({ Origin: transportOrigins[3].origin!, Cookie: "villow_review_session=irrelevant" });
+      if (authorization) headers.set("Authorization", authorization);
+      if (body) headers.set("Content-Type", "application/json");
+      const res = await workerFetch(new Request(`${env.REVIEW_ORIGIN}${path}`, {
+        method, headers, ...(body ? { body: JSON.stringify(body) } : {}),
+      }), env);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({
+        message: method === "DELETE" && !authorization ? "Your review session has expired." : "Invalid or revoked extension token.",
+      });
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(transportOrigins[3].origin);
+      if (authorization !== `Bearer ${token}`) {
+        // Cookie-only DELETE uses the website session path and also fails closed.
+        expect(mock).not.toHaveBeenCalled();
+      } else {
+        expect(mock.mock.calls).toHaveLength(1);
+        const url = String(mock.mock.calls[0][0]);
+        expect(url).toContain("revoked_at=is.null");
+        expect(url).toContain("expires_at=gt.");
+      }
+    }
+  });
+
+  it("exposes Firefox rate-limit backoff and keeps 429", async () => {
+    vi.stubGlobal("fetch", supabaseExtensionAuthMock((url) => url.endsWith("/rpc/check_review_rate_limit") ? response(false) : undefined));
+    const res = await workerFetch(extensionRequest("/api/ping", { headers: { Origin: transportOrigins[3].origin! } }), env);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("60");
+    expect(res.headers.get("Access-Control-Expose-Headers")).toBe("Retry-After");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(transportOrigins[3].origin);
+  });
+
+  it.each([
+    ["/api/extension-settings", "GET"], ["/api/extension-usage", "POST"], ["/api/screen-time", "POST"],
+  ])("keeps the optional %s fallback readable from Firefox", async (path, method) => {
+    const res = await workerFetch(extensionRequest(path, { method, headers: { Origin: transportOrigins[3].origin! } }), env);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(transportOrigins[3].origin);
+  });
+
+  it.each([
+    ["/api/me", "GET"], ["/api/queue", "GET"], ["/api/extension-tokens", "POST"],
+    ["/api/logout", "POST"], ["/api/review", "DELETE"], ["/api/oauth/start", "POST"],
+  ])("does not enable extension CORS for the website route %s %s", async (path, method) => {
+    const headers = { Origin: "https://attacker.example" };
+    const preflight = await workerFetch(new Request(`${env.REVIEW_ORIGIN}${path}`, {
+      method: "OPTIONS", headers: { ...headers, "Access-Control-Request-Method": method },
+    }), env);
+    expect(preflight.status).toBe(403);
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    const res = await workerFetch(new Request(`${env.REVIEW_ORIGIN}${path}`, { method, headers }), env);
+    expect([401, 403]).toContain(res.status);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+});
+
+describe("extension-day response date", () => {
+  it.each(["Australia/Sydney", "Australia/Brisbane"])("labels a delayed snapshot with its queried local day in %s", async (timezone) => {
+    const payload = { ...validDay, timezone };
+    let forwarded: unknown;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-07T13:59:59Z"));
+    try {
+      vi.stubGlobal("fetch", supabaseExtensionAuthMock((url, init) => {
+        if (!url.endsWith("/rpc/sync_review_extension_day")) return undefined;
+        forwarded = JSON.parse(String(init?.body));
+        vi.setSystemTime(new Date("2026-09-07T14:00:01Z")); // September 8 locally, still September 7 UTC.
+        return response(daySnapshot);
+      }));
+      const res = await workerFetch(extensionRequest("/api/extension-day", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      }), env);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ...daySnapshot, date: "2026-09-07" });
+      expect(forwarded).toEqual({ p_user_id: userId, p_payload: payload });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns the requested next day with empty totals intact", async () => {
+    const payload = { ...validDay, date: "2026-09-08" };
+    const empty = { totals: { recommendationsSeen: 0, activeSeconds: 0, saves: 0 }, saves: {} };
+    vi.stubGlobal("fetch", supabaseExtensionAuthMock((url) => url.endsWith("/rpc/sync_review_extension_day") ? response(empty) : undefined));
+    const res = await workerFetch(extensionRequest("/api/extension-day", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }), env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ...empty, date: payload.date });
+  });
+
+  it("keeps a failed day query as 503 instead of returning a dated empty snapshot", async () => {
+    vi.stubGlobal("fetch", supabaseExtensionAuthMock((url) => url.endsWith("/rpc/sync_review_extension_day") ? response({ message: "database unavailable" }, 500) : undefined));
+    const res = await workerFetch(extensionRequest("/api/extension-day", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(validDay),
+    }), env);
+    expect(res.status).toBe(503);
+    expect(await res.json()).not.toHaveProperty("date");
   });
 });

@@ -4,11 +4,11 @@ Target client: Villow browser extension v0.8.2, using the authoritative `REVIEW_
 
 | Route | Status | Behavior |
 |---|---|---|
-| `OPTIONS *` | Implemented | Exact configurable extension origin; missing and unlisted origins rejected; authorization/content-type headers; GET/POST/DELETE/OPTIONS; `Retry-After` exposed |
+| `OPTIONS` extension API routes | Implemented | Echo supplied Origin; require Origin and a supported Access-Control-Request-Method; Authorization/Content-Type headers; GET/POST/DELETE/OPTIONS; Retry-After exposed; no cookie credentials |
 | `GET /api/ping` | Implemented | Bearer required; `200 {}` |
 | `POST /api/queue` | Implemented | Validated extension metadata only; synchronous Supabase write; `201` or duplicate `409`; never calls Google |
 | `GET /api/subscriptions` | Implemented | Complete live/cached list with stable `channelId`, `handle` when available, and `title` |
-| `POST /api/extension-day` | Implemented | Absolute per-browser upsert; account totals; queue rows and external saves counted without double counting |
+| `POST /api/extension-day` | Implemented | Required date identifies the queried local day; absolute per-browser upsert; account totals; queue rows and external saves counted without double counting |
 | `GET /api/queue/status` | Implemented | Valid `{"videos":{…}}` with both required booleans |
 | `DELETE /api/queue/:videoId` | Implemented | Cross-user isolated delete; `404` when absent |
 | `GET /api/extension-settings` | Intentionally `404` | Extension uses its documented optional-route fallback |
@@ -17,11 +17,20 @@ Target client: Villow browser extension v0.8.2, using the authoritative `REVIEW_
 
 Unsupported routes never return a misleading `200 {}`.
 
-Chrome may omit the `Origin` header from a privileged service-worker request
-after the reviewer grants host permission. Originless extension API requests
-therefore proceed to bearer authentication. Requests that do carry an
-`Origin` must match `ALLOWED_EXTENSION_ORIGINS` exactly, and preflights always
-require an allowlisted origin.
+Extension API requests authenticate with the bearer token regardless of whether
+Origin is present. Firefox installation UUIDs and Chrome requests with or without
+Origin use the same authentication path. Responses echo a supplied Origin with
+Vary: Origin and expose Retry-After, including errors and optional-route 404s.
+Access-Control-Allow-Credentials is never enabled. Website-only cookie/session routes
+retain same-origin and CSRF checks and do not receive extension CORS headers.
+The shared queue DELETE route also retains same-origin/CSRF checks for cookie authentication.
+
+POST /api/extension-day returns { date, totals, saves }. The Worker adds the
+validated request date because sync_review_extension_day queries exactly that
+date: contribution rows use local_date and queue timestamps are converted with
+the request timezone before comparison. A response delayed across midnight keeps
+the queried date. There is no UTC bucket, rollover job, schema change, or migration
+required for this fix. Totals and per-video attribution retain their existing shape.
 
 ## Addendum precedence
 

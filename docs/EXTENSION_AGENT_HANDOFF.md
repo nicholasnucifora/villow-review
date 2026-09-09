@@ -1,0 +1,23 @@
+# Prompt for the Villow extension agent
+
+I checked your report against the actual review backend and implemented both justified server fixes in the villow-review working tree. **These changes are local and have not been committed, pushed, or deployed.** They will take effect on review.villow.app after a Worker deployment. No database migration is required.
+
+1. **Extension authentication:** removed the Origin allowlist from the shared bearer-authentication function, so ping, queue save, subscriptions, extension-day, queue status, and bearer-authenticated delete all use the same token checks. Requests with either Chrome origin, either of the two Firefox UUIDs you reported, or no Origin now succeed with a valid token. Missing, malformed, expired, and revoked tokens remain unauthorized. ALLOWED_EXTENSION_ORIGINS is no longer used or required by production, staging, or development configuration; an existing deployed secret can remain harmlessly.
+
+2. **CORS:** extension API responses echo a supplied Origin, include Vary: Origin, and expose Retry-After, including errors and optional-route 404s. OPTIONS requires Origin and Access-Control-Request-Method and permits the supported extension route/method combinations with Authorization and Content-Type. No Access-Control-Allow-Credentials is enabled. Website-only endpoints retain their session and same-origin/CSRF protections. The shared queue DELETE endpoint also retains same-origin/CSRF checks when using a website cookie instead of a bearer token. Continue using explicit bearer headers and cookie-free extension requests; no Origin spoofing or per-install registration is needed.
+
+3. **Daily snapshot:** POST /api/extension-day now returns { date, totals, saves }. The returned date is the validated request date. This is the actual queried day in this backend: sync_review_extension_day reads contribution rows by local_date and converts queue saved_at timestamps through the supplied timezone before comparing with that date. The database already implemented this correctly. The Worker adds the missing field without changing database logic, counters, source attribution, queue semantics, or Google integration. A delayed response keeps its requested date even if it arrives after local midnight.
+
+Please update the stale diagnostic guidance in REVIEW_BACKEND_CONTRACT.md:
+
+- Section 1.1 still recommends adding an extension ID to the allowlist, contradicting the new section 1.0.
+- The old Worker origin rejection ran BEFORE token authentication and the last_used_at update. A token showing “never used” therefore did not prove Cloudflare blocked the request before the Worker.
+- Ping and queue used the SAME origin guard in this repository. The reported ping/pass and queue/403 combination is not evidence of different server guards. Compare actual request headers, execution context, timing, and deployed version.
+- Avoid assuming Chrome always sends or always omits Origin. The server now supports both forms. A runtime.getURL value identifies the extension origin; it does not prove the network request carried that header.
+- The review queue endpoint does not implement the five-save daily cap. That refusal is an extension decision based on the returned totals. If the mismatch persists after deployment, examine the client's dated snapshots, pending requests, and startup rendering.
+
+Validation completed: 109 automated tests; TypeScript check; production and staging dry-run Worker builds; real PostgreSQL 17 checks using all repository migrations in an isolated temporary cluster. SQL checks covered local-midnight boundaries, Sydney's 23-hour DST day, Brisbane's ordinary day, cross-user isolation, shared Chrome/Firefox contributions, attribution, and idempotent absolute upserts. The cluster was stopped afterward. Existing database migrations are unchanged.
+
+After deployment, please verify packaged Chrome with its normal host permissions and Firefox in two fresh profiles: pairing, save/duplicate, subscriptions, day sync, status, delete, revoked-token 401, and rate-limit backoff. Keep rejecting snapshots whose date is not browser-today, and test a previous-day request that completes after midnight and the initial saves-panel render. These are follow-up acceptance checks; real packaged-browser testing and live deployment have not been performed in this review task.
+
+Mozilla confirms that Firefox resource UUIDs differ from the manifest extension ID and are randomly generated per browser instance: [Mozilla documentation](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/web_accessible_resources#using_web_accessible_resources).

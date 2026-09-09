@@ -78,30 +78,28 @@ npx wrangler secret put REVIEW_GOOGLE_CLIENT_SECRET --config wrangler.jsonc
 npx wrangler secret put REVIEW_TOKEN_ENCRYPTION_KEY --config wrangler.jsonc
 npx wrangler secret put REVIEW_SESSION_SIGNING_KEY --config wrangler.jsonc
 npx wrangler secret put REVIEW_INVITE_TOKEN --config wrangler.jsonc
-npx wrangler secret put ALLOWED_EXTENSION_ORIGINS --config wrangler.jsonc
 ```
 
-For `REVIEW_SUPABASE_SERVICE_ROLE_KEY`, paste the dedicated `sb_secret_…` value. For `REVIEW_SUPABASE_URL`, paste the `https://<project-ref>.supabase.co` project URL. Use a high-entropy `REVIEW_INVITE_TOKEN` that will remain stable for at least six months; rotate it only to revoke the shared invitation. The final value of `ALLOWED_EXTENSION_ORIGINS` is not available until the first Chrome Web Store draft upload assigns the stable extension ID.
+For `REVIEW_SUPABASE_SERVICE_ROLE_KEY`, paste the dedicated `sb_secret_…` value. For `REVIEW_SUPABASE_URL`, paste the `https://<project-ref>.supabase.co` project URL. Use a high-entropy `REVIEW_INVITE_TOKEN` that will remain stable for at least six months; rotate it only to revoke the shared invitation.
 
-Cloudflare Worker secrets are scoped to a Worker (and, when used, its Wrangler environment). Secrets attached to the `villow-site` Worker are not shared with `villow-review`: they do not satisfy `villow-review` bindings, and duplicate names on `villow-site` do not conflict with this Worker. Add all eight required secrets to `villow-review`; remove copies from `villow-site` only if that site's own code does not use them.
+Cloudflare Worker secrets are scoped to a Worker (and, when used, its Wrangler environment). Secrets attached to the `villow-site` Worker are not shared with `villow-review`: they do not satisfy `villow-review` bindings, and duplicate names on `villow-site` do not conflict with this Worker. Add all seven required secrets to `villow-review`; remove copies from `villow-site` only if that site's own code does not use them.
 
 In the dashboard, add them under **Workers & Pages → villow-review → Settings → Variables and Secrets**, choose type **Secret** for every name, and select **Deploy** to apply the changes. Do not put them under **Settings → Build → Build Variables and Secrets** as a substitute: build secrets exist only while the Git build is running and are not runtime bindings for the deployed Worker.
 
 `workers_dev` and preview URLs are disabled in `wrangler.jsonc`, and the Worker additionally rejects hosts other than `REVIEW_ORIGIN` in production. The Custom Domain is exact; API requests are never redirected to another host.
 
-## Where to enter the final published extension ID
+## Extension origins
 
-After the Chrome Web Store item is uploaded and its stable extension ID is known, set the production `ALLOWED_EXTENSION_ORIGINS` **Cloudflare Worker secret** to exactly:
+No extension ID or Firefox installation UUID needs to be configured. Extension
+API requests use bearer authentication, and CORS echoes the supplied Origin.
+Originless Chrome service-worker requests continue to work. CORS does not enable
+cookie credentials or relax the website session/CSRF checks.
 
-```text
-chrome-extension://<published-extension-id>
-```
-
-If more than one packaged production extension must be accepted, use a comma-separated list of exact origins. Do not include spaces inside an origin and do not use `*`.
-
-Development extension IDs belong only in the uncommitted `.dev.vars` file (copied from `.dev.vars.example`) or a separate staging Worker's secret. Never add a development ID to the production secret or to `wrangler.jsonc`.
-
-The Worker returns the requesting exact allowed origin, never `Access-Control-Allow-Origin: *`, and returns `Vary: Origin`. Bearer authentication remains mandatory after CORS succeeds.
+ALLOWED_EXTENSION_ORIGINS is no longer read or required in any environment.
+An existing Worker secret with that name is harmless and may be removed separately.
+Deploying the Worker activates both the Firefox fix and the extension-day response
+date. The existing database function already buckets by the supplied local date
+and timezone; no database migration is needed.
 
 ## Build and deploy
 

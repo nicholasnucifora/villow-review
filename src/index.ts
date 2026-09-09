@@ -5,7 +5,7 @@ import {
   GoogleUnavailable, grantedScopes, hasRequiredScopes, OAuthTransactionSetupError, synchronizeSubscriptions,
 } from "./google";
 import {
-  finalize, html, HttpError, isAllowedExtensionOrigin, isExpectedHost, json, preflight,
+  finalize, html, HttpError, isExpectedHost, json, preflight,
   readJson, redirect, requireSameOrigin,
 } from "./http";
 import type { Env, ExtensionAuth, SessionAuth } from "./types";
@@ -84,8 +84,7 @@ async function requireSession(request: Request, env: Env, db: ReviewDatabase, cs
   return auth;
 }
 
-async function requireExtension(request: Request, env: Env, db: ReviewDatabase): Promise<ExtensionAuth> {
-  if (!isAllowedExtensionOrigin(request, env)) throw new HttpError(403, "Extension origin is not allowed.");
+async function requireExtension(request: Request, db: ReviewDatabase): Promise<ExtensionAuth> {
   const authorization = request.headers.get("Authorization") || "";
   const match = /^Bearer ([A-Za-z0-9_-]{40,200})$/.exec(authorization);
   if (!match) throw new HttpError(401, "Invalid or revoked extension token.");
@@ -277,13 +276,13 @@ async function handleApi(request: Request, env: Env, db: ReviewDatabase): Promis
   }
 
   if (path === "/api/ping" && request.method === "GET") {
-    const auth = await requireExtension(request, env, db);
+    const auth = await requireExtension(request, db);
     await requireRateLimit(env, "ping", auth.tokenId, 60, 60);
     return json({});
   }
 
   if (path === "/api/subscriptions" && request.method === "GET") {
-    const auth = await requireExtension(request, env, db);
+    const auth = await requireExtension(request, db);
     await requireRateLimit(env, "subscriptions", auth.tokenId, 30, 3600);
     try {
       const channels = await synchronizeSubscriptions(db, env, auth.userId);
@@ -296,7 +295,7 @@ async function handleApi(request: Request, env: Env, db: ReviewDatabase): Promis
   }
 
   if (path === "/api/queue" && request.method === "POST") {
-    const auth = await requireExtension(request, env, db);
+    const auth = await requireExtension(request, db);
     await requireRateLimit(env, "queue", auth.tokenId, 240, 60);
     const payload = validateQueuePayload(await readJson(request));
     const inserted = await db.saveQueueVideo(auth, payload);
@@ -309,14 +308,17 @@ async function handleApi(request: Request, env: Env, db: ReviewDatabase): Promis
   }
 
   if (path === "/api/extension-day" && request.method === "POST") {
-    const auth = await requireExtension(request, env, db);
+    const auth = await requireExtension(request, db);
     await requireRateLimit(env, "extension_day", auth.tokenId, 180, 60);
     const payload = validateExtensionDay(await readJson(request));
-    return json(await db.extensionDay(auth.userId, payload as unknown as Record<string, unknown>));
+    const snapshot = await db.extensionDay(auth.userId, payload as unknown as Record<string, unknown>);
+    // sync_review_extension_day selects exactly payload.date, with queue receipts
+    // converted through payload.timezone. Never relabel a delayed response as today.
+    return json({ ...snapshot, date: payload.date });
   }
 
   if (path === "/api/queue/status" && request.method === "GET") {
-    const auth = await requireExtension(request, env, db);
+    const auth = await requireExtension(request, db);
     await requireRateLimit(env, "queue_status", auth.tokenId, 120, 60);
     return json(await db.queueStatus(auth.userId));
   }
@@ -325,7 +327,7 @@ async function handleApi(request: Request, env: Env, db: ReviewDatabase): Promis
   if (queueDeleteMatch && request.method === "DELETE") {
     const videoId = validateVideoId(decodeURIComponent(queueDeleteMatch[1]));
     let userId: string;
-    if (request.headers.has("Authorization")) userId = (await requireExtension(request, env, db)).userId;
+    if (request.headers.has("Authorization")) userId = (await requireExtension(request, db)).userId;
     else userId = (await requireSession(request, env, db, true)).user.id;
     const deleted = await db.deleteQueueVideo(userId, videoId);
     return deleted ? json({ removed: true }) : json({ message: "Video not found." }, 404);
@@ -339,7 +341,7 @@ async function handleApi(request: Request, env: Env, db: ReviewDatabase): Promis
 async function route(request: Request, env: Env): Promise<Response> {
   if (!isExpectedHost(request, env)) return json({ message: "Not found." }, 404);
   const url = new URL(request.url);
-  if (request.method === "OPTIONS") return preflight(request, env);
+  if (request.method === "OPTIONS") return preflight(request);
   if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/connect")) return html(reviewHtml);
   if (request.method === "GET" && url.pathname === "/assets/review.css") return new Response(reviewCss, { headers: { "Content-Type": "text/css; charset=utf-8" } });
   if (request.method === "GET" && url.pathname === "/assets/review.js") return new Response(reviewJs, { headers: { "Content-Type": "text/javascript; charset=utf-8" } });

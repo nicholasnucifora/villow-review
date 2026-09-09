@@ -14,7 +14,6 @@ const env: Env = {
   REVIEW_TOKEN_ENCRYPTION_KEY: zeroKey,
   REVIEW_SESSION_SIGNING_KEY: zeroKey,
   REVIEW_INVITE_TOKEN: "shared-review-invitation-secret",
-  ALLOWED_EXTENSION_ORIGINS: `chrome-extension://${"a".repeat(32)}`,
 };
 const userId = "11111111-1111-4111-8111-111111111111";
 
@@ -215,7 +214,7 @@ describe("invitation onboarding", () => {
 });
 
 describe("website session revocation and CSRF", () => {
-  async function sessionRequest(includeCsrf: boolean): Promise<{ result: Response; calls: string[] }> {
+  async function sessionRequest(includeCsrf: boolean, origin = "https://review.villow.app"): Promise<{ result: Response; calls: string[] }> {
     const rawSession = "r".repeat(64); const csrf = "c".repeat(64); const signed = await signValue(rawSession, zeroKey);
     const calls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -228,7 +227,7 @@ describe("website session revocation and CSRF", () => {
       throw new Error(`Unexpected fetch ${url}`);
     }));
     const headers: Record<string, string> = {
-      Origin:"https://review.villow.app", "Content-Type":"application/json",
+      Origin:origin, "Content-Type":"application/json",
       Cookie:`villow_review_session=${encodeURIComponent(signed)}; villow_review_csrf=${csrf}`,
     };
     if (includeCsrf) headers["X-CSRF-Token"] = csrf;
@@ -241,6 +240,13 @@ describe("website session revocation and CSRF", () => {
     expect(result.status).toBe(200);
     expect(calls.some((url) => url.includes("review_sessions?id=eq.session-id"))).toBe(true);
     expect(result.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  it("rejects a cross-origin website mutation even with valid session and CSRF tokens", async () => {
+    const { result, calls } = await sessionRequest(true, "https://attacker.example");
+    expect(result.status).toBe(403);
+    expect(result.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(calls.some((url) => url.includes("review_sessions?id=eq.session-id"))).toBe(false);
   });
 
   it("rejects a state-changing website request without its CSRF token", async () => {

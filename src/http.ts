@@ -21,25 +21,16 @@ export function redirect(path: string, status = 303): Response {
   return new Response(null, { status, headers: { Location: path } });
 }
 
-export function extensionOrigins(env: Env): Set<string> {
-  return new Set(
-    (env.ALLOWED_EXTENSION_ORIGINS || "")
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter((origin) => /^chrome-extension:\/\/[a-p]{32}$/.test(origin) || /^moz-extension:\/\/[0-9a-f-]{36}$/i.test(origin)),
-  );
-}
-
-export function isAllowedExtensionOrigin(request: Request, env: Env): boolean {
-  const origin = request.headers.get("Origin");
-  // Chrome may omit Origin for privileged extension fetches once the extension
-  // has host permission. Those requests still pass through bearer authentication.
-  return !origin || extensionOrigins(env).has(origin);
-}
-
-export function isAllowedPreflightOrigin(request: Request, env: Env): boolean {
-  const origin = request.headers.get("Origin");
-  return Boolean(origin && extensionOrigins(env).has(origin));
+function isExtensionCorsRequest(request: Request): boolean {
+  const path = new URL(request.url).pathname;
+  const method = request.method === "OPTIONS"
+    ? request.headers.get("Access-Control-Request-Method")
+    : request.method;
+  // CORS is for the bearer API, including its optional-route 404 responses.
+  // Website session endpoints retain their separate same-origin/CSRF policy.
+  if (["/api/ping", "/api/subscriptions", "/api/queue/status", "/api/extension-settings"].includes(path)) return method === "GET";
+  if (["/api/queue", "/api/extension-day", "/api/extension-usage", "/api/screen-time"].includes(path)) return method === "POST";
+  return /^\/api\/queue\/[^/]+$/.test(path) && method === "DELETE";
 }
 
 export function requireSameOrigin(request: Request, env: Env): boolean {
@@ -57,7 +48,7 @@ export function isExpectedHost(request: Request, env: Env): boolean {
 export function finalize(request: Request, response: Response, env: Env): Response {
   const headers = new Headers(response.headers);
   const origin = request.headers.get("Origin");
-  if (origin && extensionOrigins(env).has(origin)) {
+  if (origin && isExtensionCorsRequest(request)) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Access-Control-Expose-Headers", "Retry-After");
   }
@@ -77,8 +68,8 @@ export function finalize(request: Request, response: Response, env: Env): Respon
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-export function preflight(request: Request, env: Env): Response {
-  if (!isAllowedPreflightOrigin(request, env)) return json({ message: "Origin not allowed." }, 403);
+export function preflight(request: Request): Response {
+  if (!request.headers.get("Origin") || !isExtensionCorsRequest(request)) return json({ message: "Preflight not allowed." }, 403);
   return new Response(null, {
     status: 204,
     headers: {
